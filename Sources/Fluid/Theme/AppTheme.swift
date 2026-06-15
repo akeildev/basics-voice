@@ -103,10 +103,47 @@ struct AppTheme {
             )
         }
 
+        struct CardSurface {
+            struct Variant {
+                let borderOpacity: Double
+                let hoverBorderOpacity: Double
+                let borderWidth: CGFloat
+                let hoverShadowBoost: Double
+            }
+
+            let defaultPadding: CGFloat
+            let standard: Variant
+            let prominent: Variant
+            let subtle: Variant
+
+            static let defaults = CardSurface(
+                defaultPadding: 14,
+                standard: Variant(
+                    borderOpacity: 0.28,
+                    hoverBorderOpacity: 0.5,
+                    borderWidth: 1,
+                    hoverShadowBoost: 0.12
+                ),
+                prominent: Variant(
+                    borderOpacity: 0.25,
+                    hoverBorderOpacity: 0.55,
+                    borderWidth: 1.2,
+                    hoverShadowBoost: 0.15
+                ),
+                subtle: Variant(
+                    borderOpacity: 0.18,
+                    hoverBorderOpacity: 0.32,
+                    borderWidth: 0.8,
+                    hoverShadowBoost: 0.08
+                )
+            )
+        }
+
         let spacing: Spacing
         let corners: CornerRadius
         let formRow: FormRow
         let pickerControl: PickerControl
+        let cardSurface: CardSurface
         let cardShadow: Shadow
         let elevatedCardShadow: Shadow
     }
@@ -149,6 +186,7 @@ struct AppTheme {
                 corners: .standard,
                 formRow: .standard,
                 pickerControl: .standard,
+                cardSurface: .defaults,
                 cardShadow: .subtle(color: .black, opacity: 0.70),
                 elevatedCardShadow: .subtle(color: .black, opacity: 0.80)
             ),
