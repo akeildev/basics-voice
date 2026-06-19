@@ -8,8 +8,8 @@ struct TranscriptionHistoryView: View {
 
     @State private var searchQuery: String = ""
     @State private var showClearConfirmation: Bool = false
-    @State private var showFeedbackPlaceholder: Bool = false
-    @State private var selectedFeedbackEntry: TranscriptionHistoryEntry?
+    @State private var showReportConfirmation: Bool = false
+    @State private var selectedReportEntry: TranscriptionHistoryEntry?
     @State private var selectedEntryID: UUID?
 
     private var filteredEntries: [TranscriptionHistoryEntry] {
@@ -72,15 +72,15 @@ struct TranscriptionHistoryView: View {
         } message: {
             Text("This will permanently delete all \(self.historyStore.entries.count) transcription entries. This action cannot be undone.")
         }
-        .alert("Feedback placeholder", isPresented: self.$showFeedbackPlaceholder) {
+        .alert("Report Sent", isPresented: self.$showReportConfirmation) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Nothing was sent. This is reserved for opt-in bad result reporting with review and redaction before upload.")
+            Text("Thank you for helping improve FluidVoice dictation.")
         }
-        .sheet(item: self.$selectedFeedbackEntry) { entry in
-            TranscriptionFeedbackPlaceholderSheet(entry: entry) {
-                self.selectedFeedbackEntry = nil
-                self.showFeedbackPlaceholder = true
+        .sheet(item: self.$selectedReportEntry) { entry in
+            TranscriptionFeedbackReportSheet(entry: entry) {
+                self.selectedReportEntry = nil
+                self.showReportConfirmation = true
             }
             .environment(\.theme, self.theme)
         }
@@ -237,7 +237,7 @@ struct TranscriptionHistoryView: View {
             Divider()
 
             Button {
-                self.openFeedbackPlaceholder(for: entry)
+                self.openFeedbackReport(for: entry)
             } label: {
                 Label("Report Bad Result...", systemImage: "hand.thumbsup.slash")
             }
@@ -362,14 +362,14 @@ struct TranscriptionHistoryView: View {
                         }
 
                         Button {
-                            self.openFeedbackPlaceholder(for: entry)
+                            self.openFeedbackReport(for: entry)
                         } label: {
                             Label("Report", systemImage: "hand.thumbsup.slash")
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Placeholder only. Nothing is sent.")
+                        .help("Review and send this example to FluidVoice")
 
                         if entry.wasAIProcessed {
                             Button {
@@ -564,8 +564,8 @@ struct TranscriptionHistoryView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private func openFeedbackPlaceholder(for entry: TranscriptionHistoryEntry) {
-        self.selectedFeedbackEntry = entry
+    private func openFeedbackReport(for entry: TranscriptionHistoryEntry) {
+        self.selectedReportEntry = entry
     }
 
     private func combinedText(for entry: TranscriptionHistoryEntry) -> String {
@@ -629,21 +629,25 @@ struct TranscriptionHistoryView: View {
     }
 }
 
-private struct TranscriptionFeedbackPlaceholderSheet: View {
+private struct TranscriptionFeedbackReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
 
     @State private var inputText: String
     @State private var outputText: String
+    @State private var processingModel: String
     @State private var comment: String
+    @State private var isSending: Bool = false
+    @State private var errorMessage: String?
 
-    let onSend: () -> Void
+    let onSent: () -> Void
 
-    init(entry: TranscriptionHistoryEntry, onSend: @escaping () -> Void) {
+    init(entry: TranscriptionHistoryEntry, onSent: @escaping () -> Void) {
         _inputText = State(initialValue: entry.rawText)
         _outputText = State(initialValue: entry.processedText)
+        _processingModel = State(initialValue: Self.reportModel(for: entry))
         _comment = State(initialValue: "")
-        self.onSend = onSend
+        self.onSent = onSent
     }
 
     var body: some View {
@@ -656,9 +660,17 @@ private struct TranscriptionFeedbackPlaceholderSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            self.feedbackField(title: "Input", text: self.$inputText, height: 88)
-            self.feedbackField(title: "Output", text: self.$outputText, height: 88)
+            self.feedbackField(title: "Raw Text", text: self.$inputText, height: 88)
+            self.feedbackField(title: "Processed Text", text: self.$outputText, height: 88)
+            self.feedbackField(title: "Processing Model", text: self.$processingModel, height: 40)
             self.feedbackField(title: "Comment optional", text: self.$comment, height: 72)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack {
                 Spacer()
@@ -666,19 +678,57 @@ private struct TranscriptionFeedbackPlaceholderSheet: View {
                     self.dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(self.isSending)
 
-                Button("Send") {
-                    self.onSend()
+                Button {
+                    Task {
+                        await self.sendReport()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if self.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                                .fixedSize()
+                        }
+                        Text(self.isSending ? "Sending..." : "Send")
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(self.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    && self.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(self.isSendDisabled)
             }
         }
         .padding(20)
         .frame(width: 520)
         .background(self.theme.palette.contentBackground)
+    }
+
+    private var isSendDisabled: Bool {
+        self.isSending ||
+            (self.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                self.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+            self.processingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func sendReport() async {
+        let payload = TranscriptionFeedbackReporter.Payload(
+            rawText: self.inputText.trimmingCharacters(in: .whitespacesAndNewlines),
+            processedText: self.outputText.trimmingCharacters(in: .whitespacesAndNewlines),
+            processingModel: self.processingModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            comments: self.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        self.isSending = true
+        self.errorMessage = nil
+        do {
+            try await TranscriptionFeedbackReporter.submit(payload)
+            self.isSending = false
+            self.onSent()
+        } catch {
+            self.errorMessage = error.localizedDescription
+            self.isSending = false
+        }
     }
 
     private func feedbackField(title: String, text: Binding<String>, height: CGFloat) -> some View {
@@ -702,6 +752,11 @@ private struct TranscriptionFeedbackPlaceholderSheet: View {
                         )
                 )
         }
+    }
+
+    private static func reportModel(for entry: TranscriptionHistoryEntry) -> String {
+        let model = entry.processingModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return model.isEmpty ? "unknown" : model
     }
 }
 

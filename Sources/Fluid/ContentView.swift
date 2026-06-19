@@ -1931,6 +1931,7 @@ struct ContentView: View {
 
         var finalText: String
         var aiFallbackReason: String?
+        var postProcessingModel: String?
         let appInfo = self.recordingAppInfo ?? self.getCurrentAppInfo()
 
         let shouldUseAI = activeDictationSlot.map {
@@ -1941,6 +1942,7 @@ struct ContentView: View {
         if shouldUseAI {
             DebugLogger.shared.debug("Routing transcription through AI post-processing", source: "ContentView")
             let postProcessingModelInfo = self.currentDictationAIModelInfo()
+            postProcessingModel = postProcessingModelInfo.model
             let postProcessingInputChars = transcribedText.count
             let postProcessingStart = Date()
 
@@ -2057,6 +2059,7 @@ struct ContentView: View {
                 processedText: finalText,
                 appName: appInfo.name,
                 windowTitle: appInfo.windowTitle,
+                processingModel: postProcessingModel,
                 aiProcessingError: aiFallbackReason
             )
             self.persistDictationAudioIfNeeded(
@@ -2350,9 +2353,11 @@ struct ContentView: View {
 
         var finalText = transcribedText
         var aiFallbackReason: String?
+        var postProcessingModel: String?
         let appInfo = self.getCurrentAppInfo()
         let shouldUseAI = DictationAIPostProcessingGate.isConfigured(for: .primary, appBundleID: appInfo.bundleId)
         if shouldUseAI {
+            postProcessingModel = self.currentDictationAIModelInfo().model
             do {
                 finalText = try await self.processTextWithAI(
                     transcribedText,
@@ -2380,6 +2385,7 @@ struct ContentView: View {
                 processedText: finalText,
                 appName: appInfo.name,
                 windowTitle: appInfo.windowTitle,
+                processingModel: postProcessingModel,
                 aiProcessingError: aiFallbackReason
             )
         }
