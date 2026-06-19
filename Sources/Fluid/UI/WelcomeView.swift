@@ -1447,9 +1447,10 @@ struct OnboardingFlowView: View {
             .flatMap { VoiceEngineLanguageCatalog.routes(for: $0) }
 
         let storedLanguageID = self.settings.onboardingSelectedLanguageID
-        let route = allRoutes.first { route in
-            route.language.id == storedLanguageID && self.isRouteModelAndLanguageSettingsSelected(route)
-        } ?? allRoutes.first { route in
+        let storedLanguageRoutes = VoiceEngineLanguageCatalog.routes(forLanguageID: storedLanguageID)
+        let route = storedLanguageRoutes.first { route in
+            self.isRouteModelAndLanguageSettingsSelected(route)
+        } ?? storedLanguageRoutes.first ?? allRoutes.first { route in
             self.isRouteModelAndLanguageSettingsSelected(route)
         }
 
