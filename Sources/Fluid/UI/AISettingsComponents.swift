@@ -51,6 +51,7 @@ struct LiquidLayer: Shape {
 
 /// A vertical liquid-filled bar with animated fill level
 struct LiquidBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.theme) private var theme
     let fillPercent: Double
     let color: Color
@@ -66,10 +67,10 @@ struct LiquidBar: View {
             // Label
             HStack(spacing: 4) {
                 Image(systemName: self.icon)
-                    .font(.system(size: 10))
+                    .font(self.theme.typography.tiny)
                     .foregroundStyle(self.color)
                 Text(self.label)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(self.theme.typography.tinyStrong)
                     .foregroundStyle(.secondary)
             }
 
@@ -97,19 +98,33 @@ struct LiquidBar: View {
                 GeometryReader { geo in
                     let displayHeight = geo.size.height * CGFloat(self.animatedFill)
 
-                    TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { timeline in
-                        let time = timeline.date.timeIntervalSinceReferenceDate
-
-                        // Single organic liquid surface
-                        LiquidLayer(phase: 0.0, time: time)
-                            .fill(
-                                LinearGradient(
-                                    colors: [self.color, self.secondaryColor],
-                                    startPoint: .bottom,
-                                    endPoint: .top
+                    Group {
+                        if self.reduceMotion {
+                            LiquidLayer(phase: 0.0, time: 0)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [self.color, self.secondaryColor],
+                                        startPoint: .bottom,
+                                        endPoint: .top
+                                    )
                                 )
-                            )
-                            .frame(height: displayHeight)
+                                .frame(height: displayHeight)
+                        } else {
+                            TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { timeline in
+                                let time = timeline.date.timeIntervalSinceReferenceDate
+
+                                // Single organic liquid surface
+                                LiquidLayer(phase: 0.0, time: time)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [self.color, self.secondaryColor],
+                                            startPoint: .bottom,
+                                            endPoint: .top
+                                        )
+                                    )
+                                    .frame(height: displayHeight)
+                            }
+                        }
                     }
                     .frame(maxHeight: .infinity, alignment: .bottom)
                 }
@@ -136,7 +151,7 @@ struct LiquidBar: View {
 
             // Percentage (shows target, not animated)
             Text("\(Int(self.fillPercent * 100))%")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(self.theme.typography.metricTiny)
                 .foregroundStyle(self.fillPercent > 0 ? self.color : .secondary)
                 .contentTransition(.numericText())
         }
@@ -145,6 +160,11 @@ struct LiquidBar: View {
             self.animatedFill = self.fillPercent
         }
         .onChange(of: self.fillPercent) { _, newValue in
+            guard !self.reduceMotion else {
+                self.animatedFill = newValue
+                return
+            }
+
             // Animate liquid level change with a gentle "sloshing" feel
             withAnimation(.interpolatingSpring(stiffness: 140, damping: 18)) {
                 self.animatedFill = newValue

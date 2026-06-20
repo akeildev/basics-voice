@@ -116,10 +116,19 @@ final class NemotronProvider: TranscriptionProvider {
         }
 
         self.maxTranscriptionSamples = Self.loadMaxAudioSamples(from: dir) ?? self.maxTranscriptionSamples
-        let configuration = NemotronStreamingAsrManager.defaultModelConfiguration()
-        configuration.allowLowPrecisionAccumulationOnGPU = true
-        let manager = NemotronStreamingAsrManager(configuration: configuration)
-        try await manager.loadModels(modelDir: dir)
+        let manager: NemotronStreamingAsrManager
+        do {
+            manager = try await self.loadManager(modelDirectory: dir, computeUnits: .cpuAndNeuralEngine)
+        } catch {
+            guard Self.shouldRetryWithoutNeuralEngine(error) else {
+                throw error
+            }
+            DebugLogger.shared.warning(
+                "Nemotron: ANE model load failed; retrying with cpuAndGPU fallback [error=\(error.localizedDescription)]",
+                source: "Nemotron"
+            )
+            manager = try await self.loadManager(modelDirectory: dir, computeUnits: .cpuAndGPU)
+        }
         try await self.applySelectedLanguage(to: manager)
         self.manager = manager
         self.isReady = true
@@ -128,6 +137,19 @@ final class NemotronProvider: TranscriptionProvider {
             "Nemotron: provider ready [mode=\(self.mode.displayName), lang=\(SettingsStore.shared.selectedNemotronLanguage.rawValue), maxSamples=\(self.maxTranscriptionSamples)]",
             source: "Nemotron"
         )
+    }
+
+    private func loadManager(modelDirectory: URL, computeUnits: MLComputeUnits) async throws -> NemotronStreamingAsrManager {
+        let configuration = MLModelConfiguration()
+        configuration.computeUnits = computeUnits
+        configuration.allowLowPrecisionAccumulationOnGPU = true
+        let manager = NemotronStreamingAsrManager(configuration: configuration)
+        try await manager.loadModels(modelDir: modelDirectory)
+        DebugLogger.shared.info(
+            "Nemotron: loaded CoreML models with \(Self.describeComputeUnits(computeUnits))",
+            source: "Nemotron"
+        )
+        return manager
     }
 
     func transcribe(_ samples: [Float]) async throws -> ASRTranscriptionResult {
@@ -524,6 +546,45 @@ final class NemotronProvider: TranscriptionProvider {
             return audioSignal[1]
         }
         return nil
+    }
+
+    private static func shouldRetryWithoutNeuralEngine(_ error: Error) -> Bool {
+        if self.hasNeuralEngineRetryCode(error as NSError) {
+            return true
+        }
+
+        let description = error.localizedDescription.lowercased()
+        return description.contains("model execution plan")
+            || description.contains("error code: -14")
+            || description.contains("error code -14")
+    }
+
+    private static func hasNeuralEngineRetryCode(_ error: NSError) -> Bool {
+        if error.code == -14 {
+            return true
+        }
+
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           self.hasNeuralEngineRetryCode(underlying)
+        {
+            return true
+        }
+
+        if let underlyingErrors = error.userInfo[NSMultipleUnderlyingErrorsKey] as? [NSError] {
+            return underlyingErrors.contains { self.hasNeuralEngineRetryCode($0) }
+        }
+
+        return false
+    }
+
+    private static func describeComputeUnits(_ computeUnits: MLComputeUnits) -> String {
+        switch computeUnits {
+        case .cpuOnly: return "cpuOnly"
+        case .cpuAndGPU: return "cpuAndGPU"
+        case .cpuAndNeuralEngine: return "cpuAndNeuralEngine"
+        case .all: return "all"
+        @unknown default: return "unknown"
+        }
     }
 
     private static func makeError(_ description: String) -> NSError {

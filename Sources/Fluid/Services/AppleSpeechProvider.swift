@@ -5,7 +5,7 @@ import Speech
 // MARK: - Apple Speech Provider
 
 /// A TranscriptionProvider that uses Apple's native SFSpeechRecognizer.
-/// This runs strictly on-device, requires no downloads, and has 0 memory footprint when idle.
+/// This uses Apple's system speech path and lets macOS choose local or online recognition.
 final class AppleSpeechProvider: TranscriptionProvider {
     var name: String { "Apple Speech (Legacy)" }
 
@@ -19,12 +19,12 @@ final class AppleSpeechProvider: TranscriptionProvider {
     private(set) var isReady: Bool = false
 
     /// The recognizer instance. We intentionally re-create it if the locale changes,
-    /// but for now we default to the system locale.
+    /// using the language selected in Voice Engine/onboarding.
     private var recognizer: SFSpeechRecognizer?
+    private var recognizerLocaleIdentifier: String?
 
     init() {
-        // Initialize with user's current locale
-        self.recognizer = SFSpeechRecognizer(locale: Locale.current)
+        _ = self.updateRecognizerIfNeeded()
     }
 
     // MARK: - Lifecycle
@@ -69,11 +69,8 @@ final class AppleSpeechProvider: TranscriptionProvider {
             throw NSError(domain: "AppleSpeechProvider", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio buffer"])
         }
 
-        // 2. Ensure recognizer exists
-        if self.recognizer == nil {
-            self.recognizer = SFSpeechRecognizer(locale: Locale.current)
-        }
-        guard let recognizer = self.recognizer else {
+        // 2. Ensure recognizer exists for the selected speech language
+        guard let recognizer = self.updateRecognizerIfNeeded() else {
             throw NSError(domain: "AppleSpeechProvider", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize SFSpeechRecognizer"])
         }
 
@@ -84,7 +81,7 @@ final class AppleSpeechProvider: TranscriptionProvider {
         // 3. Create Request
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = false // We want the final result for this chunk
-        request.requiresOnDeviceRecognition = true // Enforce strict privacy/offline
+        request.requiresOnDeviceRecognition = false // Allow macOS to use the best available Apple speech path.
         request.append(buffer)
         request.endAudio() // Signal that this buffer is the complete utterance for this request
 
@@ -116,6 +113,16 @@ final class AppleSpeechProvider: TranscriptionProvider {
     }
 
     // MARK: - Helpers
+
+    private func updateRecognizerIfNeeded() -> SFSpeechRecognizer? {
+        let locale = SettingsStore.shared.selectedAppleSpeechLocale
+        let localeIdentifier = locale.identifier.replacingOccurrences(of: "_", with: "-")
+        if self.recognizer == nil || self.recognizerLocaleIdentifier != localeIdentifier {
+            self.recognizer = SFSpeechRecognizer(locale: locale)
+            self.recognizerLocaleIdentifier = localeIdentifier
+        }
+        return self.recognizer
+    }
 
     /// Converts raw [Float] samples (16kHz mono) to AVAudioPCMBuffer
     private func createPCMBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {

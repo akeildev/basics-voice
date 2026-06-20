@@ -280,7 +280,7 @@ final class ASRService: ObservableObject {
     }
 
     private func benchmarkLog(_ message: String) {
-        DebugLogger.shared.info("ASR_BENCH session=\(self.benchmarkSessionID) \(message)", source: "ASRBenchmark")
+        DebugLogger.shared.benchmark("ASR_BENCH", message: "session=\(self.benchmarkSessionID) \(message)", source: "ASRBenchmark")
     }
 
     private func streamingChunkErrorCategory(for error: Error) -> String {
@@ -930,7 +930,12 @@ final class ASRService: ObservableObject {
     /// - ASR models are not available
     /// - Transcription process fails
     /// Check debug logs for detailed error information.
-    func stop() async -> String {
+    /// - Parameter onCaptureStopped: Optional callback fired on the main actor
+    ///   after the audio engine has stopped but before the (potentially slow)
+    ///   final transcription pass. Use this for immediate stop cues that
+    ///   shouldn't wait on finalization. Only invoked when capture was actually
+    ///   running (i.e. not when `stop()` early-returns because `isRunning` is false).
+    func stop(onCaptureStopped: (@MainActor () -> Void)? = nil) async -> String {
         DebugLogger.shared.info("🛑 STOP() called - beginning shutdown sequence", source: "ASRService")
         self.lastCompletedAudioSnapshot = nil
         let stopStartedAt = Date().timeIntervalSince1970
@@ -976,6 +981,11 @@ final class ASRService: ObservableObject {
         DebugLogger.shared.debug("🛑 Calling engine.stop()...", source: "ASRService")
         self.engine.stop()
         DebugLogger.shared.debug("✅ Engine stopped", source: "ASRService")
+
+        // Capture has fully ended — invoke the callback so callers can play a
+        // stop cue or release capture-dependent UI without waiting on the
+        // (potentially slow) final transcription pass.
+        await MainActor.run { onCaptureStopped?() }
 
         // Recreate the engine instance instead of calling reset() to prevent format corruption
         // VoiceInk approach: tearing down and rebuilding ensures fresh, valid audio format on restart
@@ -2549,6 +2559,20 @@ final class ASRService: ObservableObject {
         self.modelsExistOnDisk = false
     }
 
+    func clearModelCache(for model: SettingsStore.SpeechModel) async throws {
+        DebugLogger.shared.debug("Clearing model cache for \(model.displayName)", source: "ASRService")
+        let provider = self.getProvider(for: model)
+        try await provider.clearCache()
+
+        if model.requiresExternalArtifacts {
+            SettingsStore.shared.setExternalCoreMLArtifactsDirectory(nil, for: model)
+        }
+
+        guard SettingsStore.shared.selectedSpeechModel == model else { return }
+        self.resetTranscriptionProvider()
+        await self.checkIfModelsExistAsync()
+    }
+
     // MARK: - Timer-based Streaming Transcription (No VAD)
 
     private func startStreamingTranscription() {
@@ -2772,11 +2796,24 @@ final class ASRService: ObservableObject {
     private let typingService = TypingService() // Reuse instance to avoid conflicts
 
     func typeTextToActiveField(_ text: String) {
-        self.typingService.typeTextInstantly(text)
+        self.typeTextToActiveField(text, preferredTargetPID: nil, textReadyAt: nil)
     }
 
-    func typeTextToActiveField(_ text: String, preferredTargetPID: pid_t?) {
-        self.typingService.typeTextInstantly(text, preferredTargetPID: preferredTargetPID)
+    func typeTextToActiveField(_ text: String, preferredTargetPID: pid_t?, textReadyAt: TimeInterval? = nil) {
+        let requestedAt = ProcessInfo.processInfo.systemUptime
+        let textReadyAge = textReadyAt.map { Int(((requestedAt - $0) * 1000).rounded()) }
+        DebugLogger.shared.benchmark(
+            "TYPING_BENCH",
+            message: "asr_type_request chars=\(text.count) preferredPID=\(preferredTargetPID.map { String($0) } ?? "nil") textReadyAgeMs=\(textReadyAge.map { String($0) } ?? "nil")",
+            source: "TypingBenchmark"
+        )
+        self.typingService.typeTextInstantly(text, preferredTargetPID: preferredTargetPID, textReadyAt: textReadyAt)
+        let dispatchedAt = ProcessInfo.processInfo.systemUptime
+        DebugLogger.shared.benchmark(
+            "TYPING_BENCH",
+            message: "asr_type_dispatched chars=\(text.count) preferredPID=\(preferredTargetPID.map { String($0) } ?? "nil") textReadyToDispatchMs=\(textReadyAt.map { String(Int(((dispatchedAt - $0) * 1000).rounded())) } ?? "nil")",
+            source: "TypingBenchmark"
+        )
     }
 
     /// Removes filler sounds from transcribed text
@@ -2928,6 +2965,7 @@ private extension ASRService {
 
     func runFastPreviewStopGraceIfNeeded() async {
         guard SettingsStore.shared.parakeetFinalizationMode == .tokenTimedChunkMerge else { return }
+        guard SettingsStore.shared.selectedSpeechModel.supportsFastDictationProcessing else { return }
         guard SettingsStore.shared.selectedSpeechModel.supportsStreaming else { return }
         guard self.transcriptionProvider is FluidAudioProvider else { return }
 

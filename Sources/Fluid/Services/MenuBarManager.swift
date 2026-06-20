@@ -45,7 +45,12 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     private var pendingShowOperation: DispatchWorkItem?
     private var pendingHideOperation: DispatchWorkItem?
     private var pendingProcessingShowOperation: DispatchWorkItem?
-    private let processingVisualDelay: DispatchTimeInterval = .milliseconds(100)
+    // Show immediately so users see the processing state right away.
+    private let processingVisualDelay: DispatchTimeInterval = .milliseconds(0)
+    // Debounce the hide so a fast transcription doesn't flash the processing
+    // overlay for a single frame. 80ms is under the perception threshold but
+    // long enough to coalesce a quick show->hide cycle.
+    private let processingHideDelay: DispatchTimeInterval = .milliseconds(80)
 
     // Subscription for forwarding audio levels to expanded command notch
     private var expandedModeAudioSubscription: AnyCancellable?
@@ -97,15 +102,21 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     }
 
     private func handleOverlayState(isRunning: Bool, asrService: ASRService) {
+        self.overlayBench("handle_state isRunning=\(isRunning) overlayVisible=\(self.overlayVisible) processing=\(self.isProcessingActive) mode=\(self.currentOverlayMode.rawValue)")
+
         // Don't hide the overlay while AI processing is active.
         // Without this, the notch can disappear during the short "Refining..." phase because
         // `isRunning` becomes false before post-processing completes.
         if !isRunning, self.isProcessingActive {
+            self.overlayBench("handle_state_return reason=processing_active")
             return
         }
 
         // Prevent rapid state changes that could cause cycles
-        guard self.overlayVisible != isRunning else { return }
+        guard self.overlayVisible != isRunning else {
+            self.overlayBench("handle_state_return reason=visibility_unchanged")
+            return
+        }
 
         if isRunning {
             // Cancel any pending hide operation
@@ -113,6 +124,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             self.pendingHideOperation = nil
 
             self.overlayVisible = true
+            self.overlayBench("show_request mode=\(self.currentOverlayMode.rawValue)")
 
             // If expanded command output is showing, check if we should keep it or close it
             if NotchOverlayManager.shared.isCommandOutputExpanded {
@@ -151,10 +163,12 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
                 }
 
                 // Show notch overlay
+                self.overlayBench("show_workitem_execute mode=\(self.currentOverlayMode.rawValue)")
                 NotchOverlayManager.shared.show(
                     audioLevelPublisher: asrService.audioLevelPublisher,
                     mode: self.currentOverlayMode
                 )
+                self.overlayBench("show_workitem_return mode=\(self.currentOverlayMode.rawValue)")
 
                 self.pendingShowOperation = nil
             }
@@ -166,6 +180,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             self.pendingShowOperation = nil
 
             self.overlayVisible = false
+            self.overlayBench("hide_request delayMs=30")
 
             // If expanded command output is showing, don't hide it - let it stay visible
             if NotchOverlayManager.shared.isCommandOutputExpanded {
@@ -188,13 +203,86 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
                 }
 
                 // Hide notch overlay
+                self.overlayBench("hide_workitem_execute")
                 NotchOverlayManager.shared.hide()
+                self.overlayBench("hide_workitem_return")
 
                 self.pendingHideOperation = nil
             }
             self.pendingHideOperation = hideItem
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(30), execute: hideItem)
         }
+    }
+
+    func showRecordingOverlayImmediately() {
+        guard let asrService else {
+            self.overlayBench("instant_show_return reason=no_asr_service")
+            return
+        }
+
+        self.pendingHideOperation?.cancel()
+        self.pendingHideOperation = nil
+        self.pendingShowOperation?.cancel()
+        self.pendingShowOperation = nil
+
+        guard !self.overlayVisible else {
+            self.overlayBench("instant_show_return reason=already_visible")
+            return
+        }
+
+        self.overlayVisible = true
+        self.overlayBench("instant_show_request mode=\(self.currentOverlayMode.rawValue)")
+
+        if NotchOverlayManager.shared.isCommandOutputExpanded {
+            if self.currentOverlayMode == .command, NotchOverlayManager.shared.supportsCommandNotchUI {
+                NotchContentState.shared.setRecordingInExpandedMode(true)
+                self.expandedModeAudioSubscription = asrService.audioLevelPublisher
+                    .receive(on: DispatchQueue.main)
+                    .sink { level in
+                        NotchContentState.shared.updateExpandedModeAudioLevel(level)
+                    }
+                return
+            }
+            NotchOverlayManager.shared.hideExpandedCommandOutput()
+        }
+
+        self.overlayBench("show_workitem_execute mode=\(self.currentOverlayMode.rawValue)")
+        NotchOverlayManager.shared.show(
+            audioLevelPublisher: asrService.audioLevelPublisher,
+            mode: self.currentOverlayMode
+        )
+        self.overlayBench("show_workitem_return mode=\(self.currentOverlayMode.rawValue)")
+    }
+
+    func hideRecordingOverlayImmediately(reason: String) {
+        self.pendingShowOperation?.cancel()
+        self.pendingShowOperation = nil
+        self.pendingHideOperation?.cancel()
+        self.pendingHideOperation = nil
+
+        guard !self.isProcessingActive else {
+            self.overlayBench("instant_hide_return reason=\(reason) processing_active")
+            return
+        }
+
+        guard self.overlayVisible else {
+            self.overlayBench("instant_hide_return reason=\(reason) already_hidden")
+            return
+        }
+
+        self.overlayVisible = false
+        self.overlayBench("instant_hide_request reason=\(reason)")
+
+        if NotchOverlayManager.shared.isCommandOutputExpanded {
+            NotchContentState.shared.setRecordingInExpandedMode(false)
+            self.expandedModeAudioSubscription?.cancel()
+            self.expandedModeAudioSubscription = nil
+            self.overlayBench("instant_hide_return reason=expanded_command_output")
+            return
+        }
+
+        NotchOverlayManager.shared.hide()
+        self.overlayBench("instant_hide_return")
     }
 
     // MARK: - Public API for overlay management
@@ -204,11 +292,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     }
 
     func setOverlayMode(_ mode: OverlayMode) {
+        self.overlayBench("set_mode mode=\(mode.rawValue)")
         self.currentOverlayMode = mode
         NotchOverlayManager.shared.setMode(mode)
     }
 
     func setProcessing(_ processing: Bool) {
+        self.overlayBench("set_processing_request processing=\(processing) overlayVisible=\(self.overlayVisible) active=\(self.isProcessingActive)")
+
         // Track processing state to prevent hide during AI refinement
         self.isProcessingActive = processing
 
@@ -221,7 +312,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
             let showItem = DispatchWorkItem { [weak self] in
                 guard let self = self, self.isProcessingActive else { return }
+                self.overlayBench("processing_show_workitem_execute delayMs=0")
                 NotchOverlayManager.shared.setProcessing(true)
+                self.overlayBench("processing_show_workitem_return")
                 self.pendingProcessingShowOperation = nil
             }
             self.pendingProcessingShowOperation = showItem
@@ -236,6 +329,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             if NotchOverlayManager.shared.isCommandOutputExpanded {
                 self.pendingHideOperation = nil
                 NotchOverlayManager.shared.setProcessing(processing)
+                self.overlayBench("set_processing_return reason=expanded_command_output")
                 return
             }
 
@@ -248,14 +342,21 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
                     return
                 }
 
+                self.overlayBench("processing_hide_workitem_execute delayMs=80")
                 NotchOverlayManager.shared.hide()
+                self.overlayBench("processing_hide_workitem_return")
                 self.pendingHideOperation = nil
             }
             self.pendingHideOperation = hideItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100), execute: hideItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.processingHideDelay, execute: hideItem)
             NotchOverlayManager.shared.setProcessing(false)
+            self.overlayBench("processing_forwarded processing=false hideDelayMs=80")
             return
         }
+    }
+
+    private func overlayBench(_ message: String) {
+        DebugLogger.shared.benchmark("OVERLAY_BENCH", message: "manager \(message)", source: "OverlayBenchmark")
     }
 
     private func setupMenuBarSafely() {
@@ -323,7 +424,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         menu.addItem(openItem)
 
         // Preferences
-        let preferencesItem = NSMenuItem(title: "Preferences", action: #selector(openPreferences), keyEquivalent: ",")
+        let preferencesItem = NSMenuItem(title: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         preferencesItem.keyEquivalentModifierMask = [.command]
         menu.addItem(preferencesItem)
@@ -692,11 +793,11 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     /// Create and present a fresh main window hosting `ContentView`
     private func createAndShowMainWindow() {
         // Build the SwiftUI root view with required environment
-        let rootView = ContentView()
-            .environmentObject(self)
-            .environmentObject(AppServices.shared)
-            .appTheme(.dark)
-            .preferredColorScheme(.dark)
+        let rootView = AdaptiveAppTheme(accent: SettingsStore.shared.accentColor) {
+            ContentView()
+                .environmentObject(self)
+                .environmentObject(AppServices.shared)
+        }
 
         // Host inside an AppKit window
         let hostingController = NSHostingController(rootView: rootView)
@@ -708,7 +809,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         )
         window.title = "FluidVoice"
         window.animationBehavior = .none
-        window.minSize = NSSize(width: 800, height: 500)
+        window.minSize = self.mainWindowMinimumSize
         window.isReleasedWhenClosed = false
         window.contentViewController = hostingController
         window.setFrame(self.defaultWindowFrame(), display: false)
@@ -724,7 +825,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     private func ensureUsableMainWindow(_ window: NSWindow) {
         // If the window is too small (e.g., height collapsed), reset to the default frame.
-        let minSize = NSSize(width: 800, height: 500)
+        let minSize = self.mainWindowMinimumSize
         window.minSize = minSize
 
         let frame = window.frame
@@ -742,6 +843,11 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             y: screenFrame.midY - size.height / 2
         )
         return NSRect(origin: origin, size: size)
+    }
+
+    private var mainWindowMinimumSize: NSSize {
+        let window = AppTheme.dark.metrics.window
+        return NSSize(width: window.mainMinWidth, height: window.mainMinHeight)
     }
 
     private func bringToFront(_ window: NSWindow) {

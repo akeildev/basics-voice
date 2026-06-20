@@ -41,10 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
         AnalyticsService.shared.bootstrap()
 
-        if SettingsStore.shared.shouldPromptAccessibilityOnLaunch {
-            self.requestAccessibilityPermissions()
-        }
-
         if isTrueFirstOpen {
             AnalyticsService.shared.capture(.appFirstOpen)
         }
@@ -68,10 +64,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     func applicationWillTerminate(_ notification: Notification) {
         DebugLogger.shared.info("Application will terminate", source: "AppDelegate")
+        self.shutdownPrivateAIRuntimeForTermination()
         LocalAPIServer.shared.stop()
         // Clean up the update check timer
         self.updateCheckTimer?.invalidate()
         self.updateCheckTimer = nil
+    }
+
+    private func shutdownPrivateAIRuntimeForTermination() {
+        var didFinishShutdown = false
+        Task { @MainActor in
+            await PrivateAIIntegrationService.shared.shutdownForTermination()
+            didFinishShutdown = true
+        }
+
+        let deadline = Date().addingTimeInterval(8)
+        while !didFinishShutdown, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        if !didFinishShutdown {
+            DebugLogger.shared.warning(
+                "Timed out waiting for private AI runtime shutdown during termination",
+                source: "AppDelegate"
+            )
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -397,44 +414,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
-
-    private func requestAccessibilityPermissions() {
-        // Never show if already trusted
-        guard !AXIsProcessTrusted() else { return }
-
-        // Per-session debounce
-        if AXPromptState.hasPromptedThisSession { return }
-
-        // Cooldown: avoid re-prompting too often across launches
-        let cooldownKey = "AXLastPromptAt"
-        let now = Date().timeIntervalSince1970
-        let last = UserDefaults.standard.double(forKey: cooldownKey)
-        let oneDay: Double = 24 * 60 * 60
-        if last > 0, (now - last) < oneDay {
-            return
-        }
-
-        DebugLogger.shared.warning("Accessibility permissions required for global hotkeys.", source: "AppDelegate")
-        DebugLogger.shared.info("Prompting for Accessibility permission…", source: "AppDelegate")
-
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
-
-        AXPromptState.hasPromptedThisSession = true
-        UserDefaults.standard.set(now, forKey: cooldownKey)
-
-        // If still not trusted shortly after, deep-link to the Accessibility pane for convenience
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            guard !AXIsProcessTrusted(),
-                  let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-            else { return }
-            NSWorkspace.shared.open(url)
-        }
-    }
-}
-
-// MARK: - Session Debounce State
-
-private enum AXPromptState {
-    static var hasPromptedThisSession: Bool = false
 }

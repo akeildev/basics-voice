@@ -175,7 +175,7 @@ extension AIEnhancementSettingsView {
                 Button("+ Add Prompt") {
                     self.viewModel.openNewPromptEditor(prefillMode: self.selectedPromptMode)
                 }
-                .buttonStyle(CompactButtonStyle(isReady: true))
+                .fluidCompactButton(isReady: true)
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
 
                 Spacer(minLength: 8)
@@ -189,16 +189,22 @@ extension AIEnhancementSettingsView {
     }
 
     private var promptProcessingControl: some View {
-        let isPrivateAILocked = self.viewModel.isPrivateAIModelSelected()
-        let isOff = self.viewModel.isPrimaryDictationPromptSelectionOff()
+        let mode = self.selectedPromptMode.normalized
+        let isPrivateAILocked = mode == .dictate && self.viewModel.isPrivateAIModelSelected()
+        let isOff = self.viewModel.isPromptSelectionOff(for: mode)
         let helpText: String = {
             if isOff {
-                return "Off: dictation types the raw transcript. Prompts and app overrides are paused."
+                switch mode {
+                case .dictate:
+                    return "Off: dictation types the raw transcript. Prompts and app overrides are paused."
+                case .edit, .write, .rewrite:
+                    return "Off: Edit Text uses the built-in prompt. Custom prompts and app overrides are paused."
+                }
             }
             if isPrivateAILocked {
                 return "On: \(PrivateAIProviderFeature.displayName) uses the \(PrivateAIProviderFeature.displayName) prompt."
             }
-            return "On: dictation follows the selected prompt scope."
+            return mode == .dictate ? "On: dictation follows the selected prompt scope." : "On: Edit Text follows the selected prompt scope."
         }()
 
         return HStack(alignment: .center, spacing: 7) {
@@ -207,7 +213,7 @@ extension AIEnhancementSettingsView {
                 .foregroundStyle(self.theme.palette.secondaryText)
                 .lineLimit(1)
 
-            self.cleanupSegmentedControl(isOff: isOff, mode: .dictate)
+            self.cleanupSegmentedControl(isOff: isOff, mode: mode)
         }
         .help(helpText)
     }
@@ -276,7 +282,7 @@ extension AIEnhancementSettingsView {
         let tone = self.modeAccentColor(mode)
         let isPrivateAILocked = mode.normalized == .dictate && self.viewModel.isPrivateAIModelSelected()
         let isSelectedAppsOnly = !isPrivateAILocked && self.viewModel.promptRoutingScope(for: mode) == .selectedAppsOnly
-        let isPromptRoutingPaused = mode.normalized == .dictate && self.viewModel.isPrimaryDictationPromptSelectionOff()
+        let isPromptRoutingPaused = self.viewModel.isPromptSelectionOff(for: mode)
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -298,6 +304,19 @@ extension AIEnhancementSettingsView {
             }
             .padding(.horizontal, 2)
 
+            if isPrivateAILocked {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption2)
+                    Text("\(PrivateAIProviderFeature.displayName) only works with the \(PrivateAIProviderFeature.displayName) prompt.")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 4)
+            }
+
             self.promptModeHintRow(mode: mode)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -305,7 +324,7 @@ extension AIEnhancementSettingsView {
 
                 if isSelectedAppsOnly {
                     self.selectedAppsOnlySummary(mode: mode)
-                    self.appPromptBindingsSection(mode: mode, isEmphasized: true)
+                    self.appPromptBindingsSection(mode: mode, isEmphasized: true, isEnabled: !isPromptRoutingPaused)
                 } else {
                     self.promptProfileCard(
                         cardKey: "\(mode.normalized.rawValue)-default",
@@ -314,14 +333,14 @@ extension AIEnhancementSettingsView {
                         mode: mode,
                         isSelected: mode.normalized == .dictate
                             ? (!isPrivateAILocked && !self.viewModel.isPrimaryDictationPromptSelectionOff() && self.viewModel.selectedPromptID(for: mode) == nil)
-                            : self.viewModel.selectedPromptID(for: mode) == nil,
+                            : (!isPromptRoutingPaused && self.viewModel.selectedPromptID(for: mode) == nil),
                         onUse: {
                             self.viewModel.setSelectedPromptID(nil, for: mode)
                         },
                         onManage: { self.viewModel.openDefaultPromptViewer(for: mode) },
                         onResetDefault: { self.viewModel.resetDefaultPromptOverride(for: mode) },
                         canResetDefault: self.viewModel.hasDefaultPromptOverride(for: mode),
-                        isEnabled: !isPrivateAILocked
+                        isEnabled: !isPrivateAILocked && !isPromptRoutingPaused
                     )
 
                     if mode.normalized == .dictate && PrivateFeatures.privateAIProvider {
@@ -354,25 +373,18 @@ extension AIEnhancementSettingsView {
                                     ? "Empty prompt (uses Default)"
                                     : self.viewModel.promptPreview(SettingsStore.stripBasePrompt(for: profile.mode, from: profile.prompt)),
                                 mode: profile.mode,
-                                isSelected: !isPrivateAILocked && self.viewModel.selectedPromptID(for: profile.mode) == profile.id,
+                                isSelected: !isPrivateAILocked && !isPromptRoutingPaused && self.viewModel.selectedPromptID(for: profile.mode) == profile.id,
                                 onUse: {
                                     self.viewModel.setSelectedPromptID(profile.id, for: profile.mode)
                                 },
                                 onManage: { self.viewModel.openEditor(for: profile) },
                                 onDelete: { self.viewModel.requestDeletePrompt(profile) },
-                                isEnabled: !isPrivateAILocked
+                                isEnabled: !isPrivateAILocked && !isPromptRoutingPaused
                             )
                         }
                     }
 
-                    self.appPromptBindingsSection(mode: mode, isEnabled: !isPrivateAILocked)
-                }
-
-                if isPrivateAILocked {
-                    Text("\(PrivateAIProviderFeature.displayName) selected. Only the \(PrivateAIProviderFeature.displayName) prompt is available when AI Enhancement is On.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
+                    self.appPromptBindingsSection(mode: mode, isEnabled: !isPrivateAILocked && !isPromptRoutingPaused)
                 }
             }
             .opacity(isPromptRoutingPaused ? 0.34 : 1)
@@ -414,7 +426,7 @@ extension AIEnhancementSettingsView {
                     key: "off",
                     isSelected: isOff,
                     tone: tone,
-                    action: { self.viewModel.selectPrimaryDictationPromptOff() }
+                    action: { self.viewModel.setPromptSelectionOff(true, for: mode) }
                 )
 
                 self.cleanupSegmentButton(
@@ -592,12 +604,35 @@ extension AIEnhancementSettingsView {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(self.theme.palette.secondaryText)
 
-            if verified.isEmpty {
+            if self.isEditModeLinkedToPrivateAI {
+                Toggle("Sync", isOn: self.editModeLinkedToGlobalBinding)
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .onChange(of: self.settings.rewriteModeLinkedToGlobal) { _, linked in
+                        if linked {
+                            self.syncEditModeToGlobalSelection()
+                        } else {
+                            self.normalizeEditModeProviderSelection()
+                        }
+                    }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text("\(PrivateAIProviderFeature.displayName) for Edit Mode is coming soon")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } else if verified.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text("No verified provider")
+                    Text("No verified chat provider")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -655,7 +690,9 @@ extension AIEnhancementSettingsView {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .onAppear {
             self.ensureDefaultEditModeSyncState()
-            if !verified.isEmpty {
+            if self.settings.rewriteModeLinkedToGlobal {
+                self.syncEditModeToGlobalSelection()
+            } else if !verified.isEmpty {
                 self.normalizeEditModeProviderSelection()
             }
         }
@@ -697,7 +734,7 @@ extension AIEnhancementSettingsView {
                 } label: {
                     Text("+ Add App")
                 }
-                .buttonStyle(CompactButtonStyle(isReady: true))
+                .fluidCompactButton(isReady: true)
                 .frame(minHeight: 26)
                 .disabled(!isEnabled)
                 .opacity(isEnabled ? 1 : 0.48)
@@ -838,9 +875,11 @@ extension AIEnhancementSettingsView {
     }
 
     private var editModeVerifiedProviders: [AIEnhancementSettingsViewModel.ProviderItemData] {
-        self.viewModel.cachedVerifiedProviderItems.sorted { lhs, rhs in
-            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        self.viewModel.cachedVerifiedProviderItems
+            .filter { !self.isPrivateAIProviderID($0.id) }
+            .sorted { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
     }
 
     private var editModeSelectedProviderID: String {
@@ -854,12 +893,14 @@ extension AIEnhancementSettingsView {
     private var activeEditModeProviderID: String {
         if self.settings.rewriteModeLinkedToGlobal {
             let global = self.viewModel.selectedProviderID
-            if self.editModeVerifiedProviders.contains(where: { $0.id == global }) {
-                return global
-            }
-            return self.editModeSelectedProviderID
+            return self.isPrivateAIProviderID(global) ? "" : global
         }
         return self.editModeSelectedProviderID
+    }
+
+    private var isEditModeLinkedToPrivateAI: Bool {
+        self.settings.rewriteModeLinkedToGlobal &&
+            self.isPrivateAIProviderID(self.viewModel.selectedProviderID)
     }
 
     private var editModeLinkedToGlobalBinding: Binding<Bool> {
@@ -920,20 +961,20 @@ extension AIEnhancementSettingsView {
 
     private func syncEditModeToGlobalSelection() {
         let global = self.viewModel.selectedProviderID
-        let providerID: String
-        if self.editModeVerifiedProviders.contains(where: { $0.id == global }) {
-            providerID = global
-        } else if let fallback = self.editModeVerifiedProviders.first?.id {
-            providerID = fallback
-        } else {
-            providerID = global
+        guard !global.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !self.isPrivateAIProviderID(global)
+        else {
+            self.settings.rewriteModeSelectedProviderID = ""
+            self.settings.rewriteModeSelectedModel = nil
+            return
         }
-        self.settings.rewriteModeSelectedProviderID = providerID
 
-        let key = self.viewModel.providerKey(for: providerID)
+        self.settings.rewriteModeSelectedProviderID = global
+
+        let key = self.viewModel.providerKey(for: global)
         let model = self.settings.selectedModelByProvider[key]
             ?? self.settings.selectedModel
-            ?? self.viewModel.models(for: providerID).first
+            ?? self.viewModel.models(for: global).first
         self.settings.rewriteModeSelectedModel = model
     }
 
@@ -943,6 +984,11 @@ extension AIEnhancementSettingsView {
             self.settings.rewriteModeLinkedToGlobal = true
             self.syncEditModeToGlobalSelection()
         }
+    }
+
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
     }
 
     private func canFetchModels(for providerID: String) -> Bool {
@@ -1220,13 +1266,13 @@ extension AIEnhancementSettingsView {
                 Button(mode.isDefault ? "Close" : "Cancel") {
                     self.viewModel.closePromptEditor()
                 }
-                .buttonStyle(CompactButtonStyle())
+                .fluidButton(.compact, size: .compact)
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
 
                 Button("Save") {
                     self.viewModel.savePromptEditor(mode: mode)
                 }
-                .buttonStyle(GlassButtonStyle(height: AISettingsLayout.controlHeight))
+                .fluidButton(.glass, size: .compact)
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 .disabled(!mode.isDefault && self.viewModel.draftPromptName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

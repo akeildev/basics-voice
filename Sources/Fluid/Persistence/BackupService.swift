@@ -16,6 +16,7 @@ struct SettingsBackupPayload: Codable, Equatable {
     let selectedSpeechModel: SettingsStore.SpeechModel
     let selectedCohereLanguage: SettingsStore.CohereLanguage
     let selectedNemotronLanguage: SettingsStore.NemotronLanguage?
+    let selectedAppleSpeechLocaleIdentifier: String?
     let hotkeyShortcut: HotkeyShortcut
     let promptModeHotkeyShortcut: HotkeyShortcut
     let promptModeShortcutEnabled: Bool
@@ -72,6 +73,7 @@ struct SettingsBackupPayload: Codable, Equatable {
     let selectedDictationPromptID: String?
     let dictationPromptOff: Bool?
     let dictationPromptRoutingScope: SettingsStore.PromptRoutingScope?
+    let editPromptOff: Bool?
     let selectedEditPromptID: String?
     let editPromptRoutingScope: SettingsStore.PromptRoutingScope?
     let defaultDictationPromptOverride: String?

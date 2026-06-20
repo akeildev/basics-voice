@@ -205,6 +205,18 @@ final class TypingService {
         return isFocused
     }
 
+    static func isCapturedFocusStillActive(for pid: pid_t) -> Bool {
+        guard AXIsProcessTrusted(),
+              let snapshot = loadFocusSnapshot(),
+              snapshot.pid == pid,
+              let element = snapshot.element
+        else {
+            return false
+        }
+
+        return Self.isCurrentlyFocusedElement(element, expectedPID: pid)
+    }
+
     /// Best-effort: activates the app with the given PID, unless it's Fluid itself.
     @discardableResult
     static func activateApp(pid: pid_t) -> Bool {
@@ -225,28 +237,49 @@ final class TypingService {
     // MARK: - Public API
 
     func typeTextInstantly(_ text: String) {
-        self.typeTextInstantly(text, preferredTargetPID: nil)
+        self.typeTextInstantly(text, preferredTargetPID: nil, textReadyAt: nil)
     }
 
     /// Types/inserts text, optionally preferring a specific target PID for CGEvent posting.
     /// This helps when our overlay temporarily has focus; we can still target the original app.
     func typeTextInstantly(_ text: String, preferredTargetPID: pid_t?) {
+        self.typeTextInstantly(text, preferredTargetPID: preferredTargetPID, textReadyAt: nil)
+    }
+
+    /// Types/inserts text, optionally preferring a specific target PID for CGEvent posting.
+    /// This helps when our overlay temporarily has focus; we can still target the original app.
+    func typeTextInstantly(_ text: String, preferredTargetPID: pid_t?, textReadyAt: TimeInterval?) {
+        let requestedAt = ProcessInfo.processInfo.systemUptime
+        let mode = self.textInsertionMode
+        let settleDelayMs: Int = {
+            if mode == .reliablePaste {
+                return preferredTargetPID == nil ? 80 : 0
+            }
+            return preferredTargetPID == nil ? 200 : 0
+        }()
+        let textReadyAge = textReadyAt.map { Self.elapsedMs(from: $0, to: requestedAt) }
+        self.bench(
+            "request chars=\(text.count) mode=\(mode.rawValue) preferredPID=\(preferredTargetPID.map { String($0) } ?? "nil") textReadyAgeMs=\(textReadyAge.map { String($0) } ?? "nil")"
+        )
         self.log("[TypingService] ENTRY: typeTextInstantly called with text length: \(text.count)")
         self.log("[TypingService] Text preview: \"\(String(text.prefix(100)))\"")
 
         guard text.isEmpty == false else {
+            self.bench("request_return reason=empty_text")
             self.log("[TypingService] ERROR: Empty text provided, aborting")
             return
         }
 
         // Prevent concurrent typing operations
         guard !self.isCurrentlyTyping else {
+            self.bench("request_return reason=already_typing")
             self.log("[TypingService] WARNING: Skipping text injection - already in progress")
             return
         }
 
         // Check accessibility permissions first
         guard AXIsProcessTrusted() else {
+            self.bench("request_return reason=accessibility_not_trusted")
             self.log("[TypingService] ERROR: Accessibility permissions required for text injection")
             self.log("[TypingService] Current accessibility status: \(AXIsProcessTrusted())")
             return
@@ -256,22 +289,43 @@ final class TypingService {
         self.isCurrentlyTyping = true
 
         DispatchQueue.global(qos: .userInitiated).async {
+            let workerStartedAt = ProcessInfo.processInfo.systemUptime
+            self.bench("worker_start queueDelayMs=\(Self.elapsedMs(from: requestedAt, to: workerStartedAt))")
+
             defer {
+                let completedAt = ProcessInfo.processInfo.systemUptime
                 self.isCurrentlyTyping = false
+                self.bench(
+                    "complete totalMs=\(Self.elapsedMs(from: requestedAt, to: completedAt)) textReadyToCompleteMs=\(textReadyAt.map { String(Self.elapsedMs(from: $0, to: completedAt)) } ?? "nil")"
+                )
                 self.log("[TypingService] Typing operation completed, isCurrentlyTyping set to false")
             }
 
             self.log("[TypingService] Starting async text insertion process")
-            if self.textInsertionMode == .reliablePaste {
-                // Reliable Paste still needs a short settle window after focus restoration.
-                usleep(80_000)
-            } else {
-                // Direct typing paths are more timing-sensitive after app activation.
-                usleep(200_000)
+            if settleDelayMs > 0 {
+                usleep(useconds_t(settleDelayMs * 1000))
             }
+            self.bench("settle_delay_done delayMs=\(settleDelayMs) elapsedMs=\(Self.elapsedMs(since: requestedAt))")
             self.log("[TypingService] Delay completed, calling insertTextInstantly")
+            let insertStartedAt = ProcessInfo.processInfo.systemUptime
+            self.bench("insert_call")
             self.insertTextInstantly(text, preferredTargetPID: preferredTargetPID)
+            self.bench(
+                "insert_return elapsedMs=\(Self.elapsedMs(since: insertStartedAt)) totalMs=\(Self.elapsedMs(since: requestedAt))"
+            )
         }
+    }
+
+    private func bench(_ message: String) {
+        DebugLogger.shared.benchmark("TYPING_BENCH", message: message, source: "TypingBenchmark")
+    }
+
+    private static func elapsedMs(since start: TimeInterval) -> Int {
+        Int(((ProcessInfo.processInfo.systemUptime - start) * 1000).rounded())
+    }
+
+    private static func elapsedMs(from start: TimeInterval, to end: TimeInterval) -> Int {
+        Int(((end - start) * 1000).rounded())
     }
 
     // MARK: - Internal insertion pipeline
@@ -294,24 +348,6 @@ final class TypingService {
                 return
             }
             self.log("[TypingService] Preferred PID CGEvent insertion failed, continuing fallback pipeline")
-        }
-
-        if text.utf16.count > Self.cgEventUnicodeLimit {
-            self.log("[TypingService] Text exceeds CGEvent limit (\(text.utf16.count) UTF-16 units), using clipboard insertion")
-            if self.insertTextViaClipboard(text) {
-                self.log("[TypingService] SUCCESS: Clipboard insertion completed (long text path)")
-                return
-            }
-            self.log("[TypingService] Clipboard failed for long text, trying character-by-character")
-            for (index, char) in text.enumerated() {
-                if index % 10 == 0 {
-                    self.log("[TypingService] Typing character \(index + 1)/\(text.count)")
-                }
-                self.typeCharacter(char)
-                usleep(1000)
-            }
-            self.log("[TypingService] Character-by-character typing completed")
-            return
         }
 
         // Get frontmost app info
@@ -406,7 +442,7 @@ final class TypingService {
         return false
     }
 
-    private static let cgEventUnicodeLimit = 200
+    private static let cgEventUnicodeChunkSize = 200
 
     private static func storeFocusSnapshot(_ snapshot: FocusSnapshot?) {
         self.focusSnapshotQueue.sync {
@@ -607,7 +643,7 @@ final class TypingService {
     }
 
     private func insertTextBulkInstant(_ text: String, targetPID: pid_t) -> Bool {
-        self.log("[TypingService] Starting INSTANT bulk CGEvent insertion (NO CLIPBOARD) to PID \(targetPID)")
+        self.log("[TypingService] Starting chunked bulk CGEvent insertion (NO CLIPBOARD) to PID \(targetPID)")
 
         guard targetPID > 0 else {
             self.log("[TypingService] ERROR: Invalid target PID \(targetPID)")
@@ -617,55 +653,81 @@ final class TypingService {
         let utf16Array = Array(text.utf16)
         self.log("[TypingService] Converting \(text.count) characters to CGEvents (UTF16 count \(utf16Array.count))")
 
-        guard utf16Array.count <= Self.cgEventUnicodeLimit else {
-            self.log("[TypingService] Text too long for single CGEvent (\(utf16Array.count) UTF-16 units > \(Self.cgEventUnicodeLimit)), falling back")
-            return false
+        return self.postUnicodeChunks(utf16Array, destinationDescription: "PID \(targetPID)") { event in
+            event.postToPid(targetPID)
         }
-
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        else {
-            self.log("[TypingService] ERROR: Failed to create bulk CGEvents")
-            return false
-        }
-
-        keyDown.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
-        keyUp.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
-
-        keyDown.postToPid(targetPID)
-        usleep(2000)
-        keyUp.postToPid(targetPID)
-
-        self.log("[TypingService] Posted bulk CGEvents to PID \(targetPID)")
-        return true
     }
 
     private func insertTextBulkHIDInstant(_ text: String) -> Bool {
-        self.log("[TypingService] Starting INSTANT bulk CGEvent insertion via HID (NO PID)")
+        self.log("[TypingService] Starting chunked bulk CGEvent insertion via HID (NO PID)")
 
         let utf16Array = Array(text.utf16)
 
-        guard utf16Array.count <= Self.cgEventUnicodeLimit else {
-            self.log("[TypingService] Text too long for single HID CGEvent (\(utf16Array.count) > \(Self.cgEventUnicodeLimit)), falling back")
-            return false
+        return self.postUnicodeChunks(utf16Array, destinationDescription: "HID tap") { event in
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func postUnicodeChunks(
+        _ utf16Array: [UInt16],
+        destinationDescription: String,
+        post: (CGEvent) -> Void
+    ) -> Bool {
+        guard utf16Array.isEmpty == false else { return true }
+
+        let chunkCount: Int = utf16Array.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return 0 }
+
+            var chunkStart = 0
+            var chunkCount = 0
+            while chunkStart < buffer.count {
+                let chunkEnd = Self.unicodeChunkEnd(in: utf16Array, start: chunkStart)
+                let chunkLength = chunkEnd - chunkStart
+
+                guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+                      let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+                else {
+                    self.log("[TypingService] ERROR: Failed to create unicode chunk CGEvents")
+                    return -1
+                }
+
+                let chunkPointer = baseAddress.advanced(by: chunkStart)
+                keyDown.keyboardSetUnicodeString(stringLength: chunkLength, unicodeString: chunkPointer)
+                keyUp.keyboardSetUnicodeString(stringLength: chunkLength, unicodeString: chunkPointer)
+
+                post(keyDown)
+                post(keyUp)
+
+                chunkStart = chunkEnd
+                chunkCount += 1
+            }
+            return chunkCount
         }
 
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        else {
-            self.log("[TypingService] ERROR: Failed to create HID bulk CGEvents")
-            return false
-        }
+        guard chunkCount >= 0 else { return false }
 
-        keyDown.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
-        keyUp.keyboardSetUnicodeString(stringLength: utf16Array.count, unicodeString: utf16Array)
-
-        keyDown.post(tap: .cghidEventTap)
-        usleep(2000)
-        keyUp.post(tap: .cghidEventTap)
-
-        self.log("[TypingService] Posted bulk CGEvents via HID tap")
+        self.log("[TypingService] Posted \(chunkCount) unicode CGEvent chunk(s) to \(destinationDescription) with chunkSize=\(Self.cgEventUnicodeChunkSize) interChunkDelayMs=0")
         return true
+    }
+
+    private static func unicodeChunkEnd(in utf16Array: [UInt16], start: Int) -> Int {
+        var end = min(start + Self.cgEventUnicodeChunkSize, utf16Array.count)
+        if end < utf16Array.count,
+           end > start,
+           Self.isHighSurrogate(utf16Array[end - 1]),
+           Self.isLowSurrogate(utf16Array[end])
+        {
+            end -= 1
+        }
+        return max(end, start + 1)
+    }
+
+    private static func isHighSurrogate(_ value: UInt16) -> Bool {
+        (0xd800...0xdbff).contains(value)
+    }
+
+    private static func isLowSurrogate(_ value: UInt16) -> Bool {
+        (0xdc00...0xdfff).contains(value)
     }
 
     /// Clipboard-based text insertion as fallback

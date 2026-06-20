@@ -208,14 +208,31 @@ final class RewriteModeService: ObservableObject {
         // Use global provider/model when linked, otherwise use Edit Mode's independent settings.
         let providerID: String = {
             if settings.rewriteModeLinkedToGlobal {
-                let globalProvider = settings.selectedProviderID
-                if self.isProviderVerified(globalProvider, settings: settings) {
-                    return globalProvider
-                }
-                return settings.rewriteModeSelectedProviderID
+                return settings.selectedProviderID
             }
             return settings.rewriteModeSelectedProviderID
         }()
+        guard !providerID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(
+                domain: "RewriteMode",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "No verified AI provider selected"]
+            )
+        }
+        guard !self.isPrivateAIProviderID(providerID) else {
+            throw NSError(
+                domain: "RewriteMode",
+                code: -5,
+                userInfo: [NSLocalizedDescriptionKey: "\(PrivateAIProviderFeature.displayName) for Edit Mode is coming soon. Choose a verified chat provider or turn Sync off."]
+            )
+        }
+        guard self.isProviderVerified(providerID, settings: settings) else {
+            throw NSError(
+                domain: "RewriteMode",
+                code: -3,
+                userInfo: [NSLocalizedDescriptionKey: "Selected AI provider is not verified"]
+            )
+        }
 
         var systemPrompt = systemPromptBeforeContext
         let contextText = self.selectedContextText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -279,10 +296,27 @@ final class RewriteModeService: ObservableObject {
                 }
                 return settings.selectedModelByProvider[key]
                     ?? settings.selectedModel
-                    ?? "gpt-4.1"
+                    ?? ModelRepository.shared.defaultModels(for: providerID).first
+                    ?? ""
             }
-            return settings.rewriteModeSelectedModel ?? "gpt-4.1"
+            return settings.rewriteModeSelectedModel
+                ?? ModelRepository.shared.defaultModels(for: providerID).first
+                ?? ""
         }()
+        guard !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NSError(
+                domain: "RewriteMode",
+                code: -4,
+                userInfo: [NSLocalizedDescriptionKey: "No AI model selected"]
+            )
+        }
+        guard !PrivateAIIntegrationService.shouldHandleDictation(model: model) else {
+            throw NSError(
+                domain: "RewriteMode",
+                code: -6,
+                userInfo: [NSLocalizedDescriptionKey: "\(PrivateAIProviderFeature.displayName) for Edit Mode is coming soon. Choose a verified chat provider model."]
+            )
+        }
         self.appendDiagnosticLog(
             "LLM config | writeMode=\(isWriteMode) | linkedToGlobal=\(settings.rewriteModeLinkedToGlobal) | " +
                 "provider=\(providerID) | model=\(model) | profile=\(selectedPromptName) | " +
@@ -409,9 +443,11 @@ final class RewriteModeService: ObservableObject {
     }
 
     private func providerKey(for providerID: String) -> String {
-        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
-        if providerID.hasPrefix("custom:") { return providerID }
-        return "custom:\(providerID)"
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if ModelRepository.shared.isBuiltIn(trimmed) { return trimmed }
+        if trimmed.hasPrefix("custom:") { return trimmed }
+        return "custom:\(trimmed)"
     }
 
     private func providerBaseURL(for providerID: String, settings: SettingsStore) -> String {
@@ -434,6 +470,7 @@ final class RewriteModeService: ObservableObject {
     }
 
     private func isProviderVerified(_ providerID: String, settings: SettingsStore) -> Bool {
+        guard !self.isPrivateAIProviderID(providerID) else { return false }
         let key = self.providerKey(for: providerID)
         guard let stored = settings.verifiedProviderFingerprints[key] else { return false }
         if providerID == "apple-intelligence" {
@@ -443,5 +480,10 @@ final class RewriteModeService: ObservableObject {
         let apiKey = settings.getAPIKey(for: providerID) ?? ""
         let current = self.providerFingerprint(baseURL: baseURL, apiKey: apiKey)
         return current == stored
+    }
+
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
     }
 }

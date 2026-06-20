@@ -500,6 +500,7 @@ struct CommandModeView: View {
                                 if newValue == "apple-intelligence-disabled" || newValue == "apple-intelligence" {
                                     return
                                 }
+                                guard !self.isPrivateAIProviderID(newValue) else { return }
                                 self.settings.commandModeSelectedProviderID = newValue
                                 self.updateAvailableModels()
                             }
@@ -544,10 +545,10 @@ struct CommandModeView: View {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(width: 34, height: 34)
-                            .foregroundStyle(self.canSubmitCommand ? Color.black : .secondary)
+                            .foregroundStyle(self.canSubmitCommand ? Color.white : .secondary)
                             .background(
                                 Circle()
-                                    .fill(self.canSubmitCommand ? Color.white.opacity(0.86) : self.theme.palette.cardBackground)
+                                    .fill(self.canSubmitCommand ? self.theme.palette.accent : self.theme.palette.cardBackground)
                             )
                     }
                     .buttonStyle(.plain)
@@ -612,6 +613,10 @@ struct CommandModeView: View {
     private func updateAvailableModels() {
         let currentProviderID = self.settings.effectiveCommandModeProviderID
         let currentModel = self.settings.commandModeSelectedModel ?? ""
+        guard !currentProviderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            self.availableModels = []
+            return
+        }
         self.availableModels = self.settings.commandModeModels(for: currentProviderID)
 
         // If current model not in list, select first available
@@ -626,7 +631,7 @@ struct CommandModeView: View {
             includeAppleIntelligence: true,
             appleIntelligenceAvailable: false,
             appleIntelligenceDisabledReason: "No tools"
-        )
+        ).filter { !self.isPrivateAIProviderID($0.id) }
     }
 
     private var verifiedBuiltInProvidersList: [(id: String, name: String)] {
@@ -635,6 +640,11 @@ struct CommandModeView: View {
 
     private var verifiedSavedProviders: [SettingsStore.SavedProvider] {
         self.settings.savedProviders.filter { self.settings.isCommandModeProviderVerified($0.id) }
+    }
+
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
     }
 }
 

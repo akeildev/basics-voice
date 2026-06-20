@@ -148,6 +148,11 @@ extension DebugLogger {
         self.log(message, level: .info, source: source)
     }
 
+    func benchmark(_ marker: String, message: String, source: String = "Benchmark") {
+        let now = ProcessInfo.processInfo.systemUptime
+        self.info("\(marker) t=\(String(format: "%.6f", now)) \(message)", source: source)
+    }
+
     func warning(_ message: String, source: String = "App") {
         self.log(message, level: .warning, source: source)
     }

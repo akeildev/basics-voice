@@ -13,14 +13,15 @@ enum DictationAIPostProcessingGate {
     static func isConfigured(for slot: SettingsStore.DictationShortcutSlot, appBundleID: String? = nil) -> Bool {
         let settings = SettingsStore.shared
         guard settings.dictationPromptSelection(for: slot) != .off else { return false }
-        if PrivateAIProviderPromptFormat.isAvailable(settings: settings) {
-            return self.isPrivateProviderConfigured(settings: settings)
-        }
         if let appBundleID,
            settings.promptRoutingScope(for: .dictate) == .selectedAppsOnly,
            !settings.hasAppPromptBinding(for: .dictate, appBundleID: appBundleID)
         {
             return false
+        }
+
+        if PrivateAIProviderPromptFormat.isAvailable(settings: settings) {
+            return self.isPrivateProviderConfigured(settings: settings)
         }
 
         return self.isProviderConfigured()
@@ -31,6 +32,12 @@ enum DictationAIPostProcessingGate {
     static func isProviderConfigured() -> Bool {
         let settings = SettingsStore.shared
         let providerID = settings.selectedProviderID
+        if PrivateFeatures.privateAIProvider,
+           providerID == PrivateAIProviderFeature.shared.providerID
+        {
+            return self.isPrivateProviderConfigured(settings: settings)
+        }
+
         let key = self.providerKey(for: providerID)
         guard let storedFingerprint = settings.verifiedProviderFingerprints[key] else { return false }
 
@@ -58,9 +65,11 @@ enum DictationAIPostProcessingGate {
     }
 
     static func providerKey(for providerID: String) -> String {
-        if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
-        if providerID.hasPrefix("custom:") { return providerID }
-        return "custom:\(providerID)"
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if ModelRepository.shared.isBuiltIn(trimmed) { return trimmed }
+        if trimmed.hasPrefix("custom:") { return trimmed }
+        return "custom:\(trimmed)"
     }
 
     static func providerFingerprint(baseURL: String, apiKey: String) -> String? {
@@ -74,14 +83,7 @@ enum DictationAIPostProcessingGate {
     }
 
     private static func isPrivateProviderConfigured(settings: SettingsStore) -> Bool {
-        guard PrivateAIIntegrationService.isLocalRuntimeConfigured else { return false }
-
-        let providerID = PrivateAIProviderFeature.shared.providerID
-        let key = self.providerKey(for: providerID)
-        let modelID = settings.selectedModelByProvider[key] ?? PrivateAIIntegrationService.configuredModelID
-        guard !modelID.isEmpty else { return false }
-
-        return settings.verifiedProviderFingerprints[key] == PrivateAIProviderFeature.verificationFingerprint(for: modelID)
+        PrivateAIProviderPromptFormat.verifiedModelID(settings: settings) != nil
     }
 
     static func isLocalEndpoint(_ urlString: String) -> Bool {

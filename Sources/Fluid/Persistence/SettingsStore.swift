@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Combine
+import CryptoKit
 import Foundation
 import ServiceManagement
 import SwiftUI
@@ -29,6 +30,7 @@ final class SettingsStore: ObservableObject {
         self.migrateDictationPromptProfilesIfNeeded()
         self.migrateLegacyDictationAIPreferenceIfNeeded()
         self.normalizePromptSelectionsIfNeeded()
+        self.normalizeProviderSelectionForCurrentVerificationState()
         self.migrateOverlayBottomOffsetTo50IfNeeded()
         self.refreshLaunchAtStartupStatus(clearError: true, logMismatch: false)
     }
@@ -301,6 +303,14 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var isEditPromptOff: Bool {
+        get { self.defaults.bool(forKey: Keys.editPromptOff) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.editPromptOff)
+        }
+    }
+
     var dictationPromptSelection: DictationPromptSelection {
         self.dictationPromptSelection(for: .primary)
     }
@@ -434,6 +444,24 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    func isPromptOff(for mode: PromptMode) -> Bool {
+        switch mode.normalized {
+        case .dictate:
+            return self.isDictationPromptOff
+        case .edit, .write, .rewrite:
+            return self.isEditPromptOff
+        }
+    }
+
+    func setPromptOff(_ isOff: Bool, for mode: PromptMode) {
+        switch mode.normalized {
+        case .dictate:
+            self.setDictationPromptSelection(isOff ? .off : .default)
+        case .edit, .write, .rewrite:
+            self.isEditPromptOff = isOff
+        }
+    }
+
     func selectedDictationPromptProfile(for slot: DictationShortcutSlot) -> DictationPromptProfile? {
         guard let id = self.selectedDictationPromptID(for: slot) else { return nil }
         return self.dictationPromptProfiles.first(where: { $0.id == id && $0.mode.normalized == .dictate })
@@ -489,8 +517,10 @@ final class SettingsStore: ObservableObject {
                 self.setDictationPromptSelection(.default)
             }
         case .edit:
+            self.isEditPromptOff = false
             self.selectedEditPromptID = id
         case .write, .rewrite:
+            self.isEditPromptOff = false
             self.selectedEditPromptID = id
         }
     }
@@ -865,6 +895,15 @@ final class SettingsStore: ObservableObject {
     func promptResolution(for mode: PromptMode, appBundleID: String? = nil) -> PromptResolution {
         let normalizedMode = mode.normalized
 
+        if normalizedMode == .edit, self.isEditPromptOff {
+            return self.defaultPromptResolution(
+                for: normalizedMode,
+                source: .builtInDefault,
+                appBinding: nil,
+                allowDefaultOverride: false
+            )
+        }
+
         if let binding = self.appPromptBinding(for: normalizedMode, appBundleID: appBundleID) {
             if let promptID = binding.promptID,
                let profile = self.dictationPromptProfiles.first(where: {
@@ -1225,8 +1264,34 @@ final class SettingsStore: ObservableObject {
         set {
             objectWillChange.send()
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.defaults.set(trimmed.isEmpty ? "openai" : trimmed, forKey: Keys.selectedProviderID)
+            if trimmed.isEmpty {
+                self.defaults.removeObject(forKey: Keys.selectedProviderID)
+            } else {
+                self.defaults.set(trimmed, forKey: Keys.selectedProviderID)
+            }
         }
+    }
+
+    func normalizeProviderSelectionForCurrentVerificationState() {
+        let currentProviderID = self.selectedProviderID
+        if self.isVerifiedProviderForCurrentConfiguration(currentProviderID) {
+            self.syncLinkedProviderSelections(to: currentProviderID)
+            return
+        }
+
+        let verifiedProviderIDs = self.verifiedProviderIDsForCurrentConfiguration()
+        guard verifiedProviderIDs.count == 1,
+              let providerID = verifiedProviderIDs.first
+        else {
+            if currentProviderID.isEmpty {
+                self.selectedProviderID = ""
+                self.syncLinkedProviderSelections(to: "")
+            }
+            return
+        }
+
+        self.selectedProviderID = providerID
+        self.syncLinkedProviderSelections(to: providerID)
     }
 
     var privateAIPrefixKVCacheEnabled: Bool {
@@ -1566,6 +1631,40 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    enum ThemePreference: String, CaseIterable, Identifiable, Codable {
+        case system
+        case light
+        case dark
+
+        var id: String {
+            self.rawValue
+        }
+
+        var displayName: String {
+            switch self {
+            case .system: return "System"
+            case .light: return "Light"
+            case .dark: return "Dark"
+            }
+        }
+
+        var systemImageName: String {
+            switch self {
+            case .system: return "circle.lefthalf.filled"
+            case .light: return "sun.max"
+            case .dark: return "moon"
+            }
+        }
+
+        var preferredColorScheme: ColorScheme? {
+            switch self {
+            case .system: return nil
+            case .light: return .light
+            case .dark: return .dark
+            }
+        }
+    }
+
     enum TranscriptionStartSound: String, CaseIterable, Identifiable, Codable {
         case none
         case fluidSfx0 = "fluid_sfx_0"
@@ -1600,10 +1699,6 @@ final class SettingsStore: ObservableObject {
             }
         }
 
-        var soundFileName: String? {
-            self.startSoundFileName
-        }
-
         var stopSoundFileName: String? {
             switch self {
             case .fluidSfx0: return "FV_end_0"
@@ -1629,6 +1724,21 @@ final class SettingsStore: ObservableObject {
 
     var accentColor: Color {
         Color(hex: self.accentColorOption.hex) ?? Color(red: 0.227, green: 0.784, blue: 0.776)
+    }
+
+    var themePreference: ThemePreference {
+        get {
+            guard let raw = self.defaults.string(forKey: Keys.themePreference),
+                  let preference = ThemePreference(rawValue: raw)
+            else {
+                return .system
+            }
+            return preference
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue.rawValue, forKey: Keys.themePreference)
+        }
     }
 
     var enableTranscriptionSounds: Bool {
@@ -1839,11 +1949,11 @@ final class SettingsStore: ObservableObject {
     var onboardingCurrentStep: Int {
         get {
             let raw = self.defaults.integer(forKey: Keys.onboardingCurrentStep)
-            return max(0, min(4, raw))
+            return max(0, min(5, raw))
         }
         set {
             objectWillChange.send()
-            let clamped = max(0, min(4, newValue))
+            let clamped = max(0, min(5, newValue))
             self.defaults.set(clamped, forKey: Keys.onboardingCurrentStep)
         }
     }
@@ -1862,6 +1972,52 @@ final class SettingsStore: ObservableObject {
             objectWillChange.send()
             self.defaults.set(newValue, forKey: Keys.onboardingPlaygroundValidated)
         }
+    }
+
+    var onboardingPlaygroundSkipped: Bool {
+        get { self.defaults.bool(forKey: Keys.onboardingPlaygroundSkipped) }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.onboardingPlaygroundSkipped)
+        }
+    }
+
+    var onboardingSelectedLanguageID: String {
+        get {
+            let stored = self.defaults.string(forKey: Keys.onboardingSelectedLanguageID)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let stored, !stored.isEmpty {
+                return stored
+            }
+            return "en"
+        }
+        set {
+            objectWillChange.send()
+            let normalized = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.defaults.set(normalized.isEmpty ? "en" : normalized, forKey: Keys.onboardingSelectedLanguageID)
+        }
+    }
+
+    var selectedAppleSpeechLocaleIdentifier: String {
+        get {
+            let stored = self.defaults.string(forKey: Keys.selectedAppleSpeechLocaleIdentifier)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let stored, !stored.isEmpty {
+                return stored
+            }
+            return Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
+        }
+        set {
+            objectWillChange.send()
+            let normalized = newValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "_", with: "-")
+            self.defaults.set(normalized.isEmpty ? "en-US" : normalized, forKey: Keys.selectedAppleSpeechLocaleIdentifier)
+        }
+    }
+
+    var selectedAppleSpeechLocale: Locale {
+        Locale(identifier: self.selectedAppleSpeechLocaleIdentifier)
     }
 
     var shouldShowOnboarding: Bool {
@@ -1885,11 +2041,15 @@ final class SettingsStore: ObservableObject {
             self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
             self.defaults.set(false, forKey: Keys.onboardingAISkipped)
             self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundSkipped)
+            self.defaults.set("en", forKey: Keys.onboardingSelectedLanguageID)
         } else {
             self.defaults.set(true, forKey: Keys.onboardingCompleted)
             self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
             self.defaults.set(false, forKey: Keys.onboardingAISkipped)
             self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+            self.defaults.set(false, forKey: Keys.onboardingPlaygroundSkipped)
+            self.defaults.set("en", forKey: Keys.onboardingSelectedLanguageID)
         }
     }
 
@@ -1899,13 +2059,19 @@ final class SettingsStore: ObservableObject {
         self.defaults.set(0, forKey: Keys.onboardingCurrentStep)
         self.defaults.set(false, forKey: Keys.onboardingAISkipped)
         self.defaults.set(false, forKey: Keys.onboardingPlaygroundValidated)
+        self.defaults.set(false, forKey: Keys.onboardingPlaygroundSkipped)
+        self.defaults.set("en", forKey: Keys.onboardingSelectedLanguageID)
         self.defaults.set(false, forKey: Keys.playgroundUsed)
     }
 
     private func hasLegacyUsageSignals() -> Bool {
         if self.defaults.object(forKey: Keys.playgroundUsed) != nil { return true }
         if self.defaults.object(forKey: Keys.hotkeyShortcutKey) != nil { return true }
-        if self.defaults.object(forKey: Keys.selectedSpeechModel) != nil { return true }
+        if let rawSpeechModel = self.defaults.string(forKey: Keys.selectedSpeechModel),
+           rawSpeechModel != SpeechModel.defaultModel.rawValue
+        {
+            return true
+        }
         if self.defaults.object(forKey: Keys.selectedProviderID) != nil { return true }
         if self.defaults.object(forKey: Keys.customDictionaryEntries) != nil { return true }
         if !self.savedProviders.isEmpty { return true }
@@ -1923,10 +2089,15 @@ final class SettingsStore: ObservableObject {
     }
 
     var commandModeSelectedProviderID: String {
-        get { self.defaults.string(forKey: Keys.commandModeSelectedProviderID) ?? "openai" }
+        get { self.defaults.string(forKey: Keys.commandModeSelectedProviderID) ?? "" }
         set {
             objectWillChange.send()
-            self.defaults.set(newValue, forKey: Keys.commandModeSelectedProviderID)
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                self.defaults.removeObject(forKey: Keys.commandModeSelectedProviderID)
+            } else {
+                self.defaults.set(trimmed, forKey: Keys.commandModeSelectedProviderID)
+            }
         }
     }
 
@@ -2074,10 +2245,15 @@ final class SettingsStore: ObservableObject {
     }
 
     var rewriteModeSelectedProviderID: String {
-        get { self.defaults.string(forKey: Keys.rewriteModeSelectedProviderID) ?? "openai" }
+        get { self.defaults.string(forKey: Keys.rewriteModeSelectedProviderID) ?? "" }
         set {
             objectWillChange.send()
-            self.defaults.set(newValue, forKey: Keys.rewriteModeSelectedProviderID)
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                self.defaults.removeObject(forKey: Keys.rewriteModeSelectedProviderID)
+            } else {
+                self.defaults.set(trimmed, forKey: Keys.rewriteModeSelectedProviderID)
+            }
         }
     }
 
@@ -2335,6 +2511,7 @@ final class SettingsStore: ObservableObject {
             selectedSpeechModel: self.selectedSpeechModel,
             selectedCohereLanguage: self.selectedCohereLanguage,
             selectedNemotronLanguage: self.selectedNemotronLanguage,
+            selectedAppleSpeechLocaleIdentifier: self.selectedAppleSpeechLocaleIdentifier,
             hotkeyShortcut: self.hotkeyShortcut,
             promptModeHotkeyShortcut: self.promptModeHotkeyShortcut,
             promptModeShortcutEnabled: self.promptModeShortcutEnabled,
@@ -2391,6 +2568,7 @@ final class SettingsStore: ObservableObject {
             selectedDictationPromptID: self.selectedDictationPromptID,
             dictationPromptOff: self.isDictationPromptOff,
             dictationPromptRoutingScope: self.dictationPromptRoutingScope,
+            editPromptOff: self.isEditPromptOff,
             selectedEditPromptID: self.selectedEditPromptID,
             editPromptRoutingScope: self.editPromptRoutingScope,
             defaultDictationPromptOverride: self.defaultDictationPromptOverride,
@@ -2418,6 +2596,9 @@ final class SettingsStore: ObservableObject {
         self.selectedCohereLanguage = payload.selectedCohereLanguage
         if let selectedNemotronLanguage = payload.selectedNemotronLanguage {
             self.selectedNemotronLanguage = selectedNemotronLanguage
+        }
+        if let selectedAppleSpeechLocaleIdentifier = payload.selectedAppleSpeechLocaleIdentifier {
+            self.selectedAppleSpeechLocaleIdentifier = selectedAppleSpeechLocaleIdentifier
         }
         self.hotkeyShortcut = payload.hotkeyShortcut
         self.promptModeHotkeyShortcut = payload.promptModeHotkeyShortcut
@@ -2481,6 +2662,7 @@ final class SettingsStore: ObservableObject {
         self.selectedDictationPromptID = payload.selectedDictationPromptID
         self.isDictationPromptOff = payload.dictationPromptOff ?? self.isDictationPromptOff
         self.dictationPromptRoutingScope = payload.dictationPromptRoutingScope ?? .allApps
+        self.isEditPromptOff = payload.editPromptOff ?? self.isEditPromptOff
         self.editPromptRoutingScope = payload.editPromptRoutingScope ?? .allApps
         self.selectedEditPromptID = payload.selectedEditPromptID
         self.defaultDictationPromptOverride = payload.defaultDictationPromptOverride
@@ -2771,20 +2953,139 @@ final class SettingsStore: ObservableObject {
     }
 
     private func canonicalProviderKey(for providerID: String) -> String {
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
         // Built-in providers use their ID directly
+        if ModelRepository.shared.isBuiltIn(trimmed) {
+            return trimmed
+        }
+        if trimmed.hasPrefix("custom:") {
+            return trimmed
+        }
+        return "custom:\(trimmed)"
+    }
+
+    private func verifiedProviderIDsForCurrentConfiguration() -> [String] {
+        var providerIDs = ModelRepository.builtInProviderIDs + self.savedProviders.map(\.id)
+        if PrivateFeatures.privateAIProvider {
+            providerIDs.append(PrivateAIProviderFeature.shared.providerID)
+        }
+
+        var seenProviderKeys = Set<String>()
+        return providerIDs.filter { providerID in
+            let key = self.canonicalProviderKey(for: providerID)
+            guard !key.isEmpty, seenProviderKeys.insert(key).inserted else { return false }
+            return self.isVerifiedProviderForCurrentConfiguration(providerID)
+        }
+    }
+
+    private func isVerifiedProviderForCurrentConfiguration(_ providerID: String) -> Bool {
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed == "apple-intelligence" {
+            return AppleIntelligenceService.isAvailable &&
+                self.verifiedProviderFingerprints[self.canonicalProviderKey(for: trimmed)] == "apple-intelligence"
+        }
+
+        if PrivateFeatures.privateAIProvider,
+           trimmed == PrivateAIProviderFeature.shared.providerID
+        {
+            return PrivateAIProviderPromptFormat.verifiedModelID(settings: self) != nil
+        }
+
+        let key = self.canonicalProviderKey(for: trimmed)
+        guard let stored = self.verifiedProviderFingerprints[key] else { return false }
+
+        let baseURL = self.providerBaseURLForVerification(for: trimmed)
+        let apiKey = (self.getAPIKey(for: trimmed) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ModelRepository.shared.isLocalEndpoint(baseURL) || !apiKey.isEmpty else { return false }
+
+        return self.providerFingerprint(baseURL: baseURL, apiKey: apiKey) == stored
+    }
+
+    private func providerBaseURLForVerification(for providerID: String) -> String {
+        let savedProviderID = providerID.hasPrefix("custom:") ?
+            String(providerID.dropFirst("custom:".count)) : providerID
+        if let saved = self.savedProviders.first(where: { $0.id == savedProviderID }) {
+            return saved.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if ModelRepository.shared.isBuiltIn(providerID) {
-            return providerID
+            return ModelRepository.shared.defaultBaseURL(for: providerID).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if providerID.hasPrefix("custom:") {
-            return providerID
+        return ""
+    }
+
+    private func providerFingerprint(baseURL: String, apiKey: String) -> String? {
+        let trimmedBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBaseURL.isEmpty else { return nil }
+
+        let input = "\(trimmedBaseURL)|\(trimmedAPIKey)"
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func syncLinkedProviderSelections(to providerID: String) {
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let linkedProviderID = self.isPrivateAIProviderID(trimmed) ? "" : trimmed
+        let model = self.modelSelection(for: linkedProviderID)
+
+        if self.rewriteModeLinkedToGlobal {
+            self.rewriteModeSelectedProviderID = linkedProviderID
+            self.rewriteModeSelectedModel = model
         }
-        return "custom:\(providerID)"
+
+        if self.commandModeLinkedToGlobal {
+            self.commandModeSelectedProviderID = linkedProviderID
+            self.commandModeSelectedModel = model
+        }
+    }
+
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
+    }
+
+    private func modelSelection(for providerID: String) -> String? {
+        guard !providerID.isEmpty else { return nil }
+
+        if PrivateFeatures.privateAIProvider,
+           providerID == PrivateAIProviderFeature.shared.providerID,
+           let modelID = PrivateAIProviderPromptFormat.verifiedModelID(settings: self)
+        {
+            return modelID
+        }
+
+        let key = self.canonicalProviderKey(for: providerID)
+        if let selected = self.selectedModelByProvider[key],
+           !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return selected
+        }
+
+        let savedProviderID = providerID.hasPrefix("custom:") ?
+            String(providerID.dropFirst("custom:".count)) : providerID
+        if let savedModel = self.savedProviders.first(where: { $0.id == savedProviderID })?.models.first,
+           !savedModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return savedModel
+        }
+
+        return ModelRepository.shared.defaultModels(for: providerID).first
     }
 
     private func availableSelectedProviderID(for rawValue: String?) -> String {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let providerID = trimmed.isEmpty ? "openai" : trimmed
+        guard !trimmed.isEmpty else { return "" }
+        let providerID = trimmed
         if ModelRepository.shared.isBuiltIn(providerID) { return providerID }
+        if PrivateFeatures.privateAIProvider,
+           providerID == PrivateAIProviderFeature.shared.providerID
+        {
+            return providerID
+        }
 
         let savedProviderID = providerID.hasPrefix("custom:") ?
             String(providerID.dropFirst("custom:".count)) : providerID
@@ -2792,7 +3093,7 @@ final class SettingsStore: ObservableObject {
             return savedProviderID
         }
 
-        return "openai"
+        return ""
     }
 
     private func sanitizeAPIKeys(_ values: [String: String]) -> [String: String] {
@@ -3064,7 +3365,7 @@ final class SettingsStore: ObservableObject {
             case .nemotronOffline: return "~530 MB"
             case .nemotronStreaming: return "~670 MB"
             case .nemotronStreaming320: return "~670 MB"
-            case .appleSpeech: return "Built-in (Zero Download)"
+            case .appleSpeech: return "Built-in"
             case .appleSpeechAnalyzer: return "Built-in"
             case .whisperTiny: return "~75 MB"
             case .whisperBase: return "~142 MB"
@@ -3217,7 +3518,7 @@ final class SettingsStore: ObservableObject {
             case .nemotronStreaming320:
                 return "NVIDIA Nemotron 3.5 streaming-capable transcription. Supports 40 language-locales with auto or manual language selection."
             case .appleSpeech:
-                return "Built-in macOS speech recognition. No download required."
+                return "Built-in macOS speech recognition. No model download required."
             case .appleSpeechAnalyzer:
                 return "Advanced and modern on-device recognition for newer macOS devices."
             case .whisperTiny:
@@ -3381,6 +3682,15 @@ final class SettingsStore: ObservableObject {
         var appleSiliconOptimized: Bool {
             switch self {
             case .parakeetTDT, .parakeetTDTv2, .parakeetRealtime, .qwen3Asr, .cohereTranscribeSixBit, .nemotronOffline, .nemotronStreaming, .nemotronStreaming320, .appleSpeechAnalyzer:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var supportsFastDictationProcessing: Bool {
+            switch self {
+            case .parakeetTDT, .parakeetTDTv2:
                 return true
             default:
                 return false
@@ -3666,6 +3976,7 @@ private extension SettingsStore {
         static let launchAtStartup = "LaunchAtStartup"
         static let showInDock = "ShowInDock"
         static let accentColorOption = "AccentColorOption"
+        static let themePreference = "ThemePreference"
         static let enableTranscriptionSounds = "EnableTranscriptionSounds"
         static let transcriptionStartSound = "TranscriptionStartSound"
         static let transcriptionSoundVolume = "TranscriptionSoundVolume"
@@ -3687,6 +3998,8 @@ private extension SettingsStore {
         static let onboardingCurrentStep = "OnboardingCurrentStep"
         static let onboardingAISkipped = "OnboardingAISkipped"
         static let onboardingPlaygroundValidated = "OnboardingPlaygroundValidated"
+        static let onboardingPlaygroundSkipped = "OnboardingPlaygroundSkipped"
+        static let onboardingSelectedLanguageID = "OnboardingSelectedLanguageID"
 
         // Command Mode Keys
         static let commandModeSelectedModel = "CommandModeSelectedModel"
@@ -3740,6 +4053,7 @@ private extension SettingsStore {
         static let selectedSpeechModel = "SelectedSpeechModel"
         static let selectedCohereLanguage = "SelectedCohereLanguage"
         static let selectedNemotronLanguage = "SelectedNemotronLanguage"
+        static let selectedAppleSpeechLocaleIdentifier = "SelectedAppleSpeechLocaleIdentifier"
         static let externalCoreMLArtifactsDirectories = "ExternalCoreMLArtifactsDirectories"
 
         // Overlay Position
@@ -3760,6 +4074,7 @@ private extension SettingsStore {
         static let dictationPromptProfiles = "DictationPromptProfiles"
         static let appPromptBindings = "AppPromptBindings"
         static let selectedDictationPromptID = "SelectedDictationPromptID"
+        static let editPromptOff = "EditPromptOff"
         static let selectedEditPromptID = "SelectedEditPromptID"
         static let selectedWritePromptID = "SelectedWritePromptID" // legacy fallback key
         static let selectedRewritePromptID = "SelectedRewritePromptID" // legacy fallback key
@@ -3799,9 +4114,9 @@ extension SettingsStore {
         var description: String {
             switch self {
             case .standard:
-                return "Tries to insert text without changing the clipboard. Usually a bit slower, and may fail or behave inconsistently in some apps."
+                return "Fastest path. Inserts text without changing the clipboard, with paste fallback if direct insertion is unavailable."
             case .reliablePaste:
-                return "Usually faster and works best across browsers and desktop apps. Uses a temporary clipboard paste, so clipboard history apps may briefly record dictated text."
+                return "Compatibility path. Uses a temporary clipboard paste, so clipboard history apps may briefly record dictated text."
             }
         }
     }
@@ -3811,7 +4126,7 @@ extension SettingsStore {
             guard let raw = self.defaults.string(forKey: Keys.textInsertionMode),
                   let mode = TextInsertionMode(rawValue: raw)
             else {
-                return .reliablePaste
+                return .standard
             }
             return mode
         }

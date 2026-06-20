@@ -12,12 +12,16 @@ final class DictationE2ETests: XCTestCase {
     private let selectedDictationPromptIDKey = "SelectedDictationPromptID"
     private let selectedEditPromptIDKey = "SelectedEditPromptID"
     private let dictationPromptOffKey = "DictationPromptOff"
+    private let editPromptOffKey = "EditPromptOff"
     private let defaultDictationPromptOverrideKey = "DefaultDictationPromptOverride"
     private let defaultEditPromptOverrideKey = "DefaultEditPromptOverride"
     private let savedProvidersKey = "SavedProviders"
     private let selectedProviderIDKey = "SelectedProviderID"
     private let availableModelsByProviderKey = "AvailableModelsByProvider"
     private let selectedModelByProviderKey = "SelectedModelByProvider"
+    private let commandModeLinkedToGlobalKey = "CommandModeLinkedToGlobal"
+    private let commandModeSelectedProviderIDKey = "CommandModeSelectedProviderID"
+    private let commandModeSelectedModelKey = "CommandModeSelectedModel"
     private var privateAISelectedModelIDKey: String { PrivateAIProviderFeature.shared.selectedModelDefaultsKey }
     private var privateAILocalModelPathKey: String { PrivateAIProviderFeature.shared.localModelPathDefaultsKey }
     private var privateAIPrefixKVCacheEnabledKey: String { PrivateAIProviderFeature.shared.prefixCacheDefaultsKey }
@@ -25,7 +29,7 @@ final class DictationE2ETests: XCTestCase {
 
     func testTranscriptionStartSound_noneOptionHasNoFile() {
         XCTAssertEqual(SettingsStore.TranscriptionStartSound.none.displayName, "None")
-        XCTAssertNil(SettingsStore.TranscriptionStartSound.none.soundFileName)
+        XCTAssertNil(SettingsStore.TranscriptionStartSound.none.startSoundFileName)
     }
 
     func testTranscriptionStartSound_legacyDisabledToggleMigratesToNone() {
@@ -155,6 +159,48 @@ final class DictationE2ETests: XCTestCase {
         }
     }
 
+    func testEditPromptOffUsesBuiltInDefaultAndPausesOverrides() {
+        self.withPromptSettingsRestored {
+            let settings = SettingsStore.shared
+
+            let global = SettingsStore.DictationPromptProfile(
+                name: "Global Edit",
+                prompt: "Global edit prompt",
+                mode: .edit
+            )
+            let mail = SettingsStore.DictationPromptProfile(
+                name: "Mail Edit",
+                prompt: "Mail edit prompt",
+                mode: .edit
+            )
+
+            settings.dictationPromptProfiles = [global, mail]
+            settings.selectedEditPromptID = global.id
+            settings.defaultEditPromptOverride = "Custom default edit prompt"
+            settings.appPromptBindings = [
+                SettingsStore.AppPromptBinding(
+                    mode: .edit,
+                    appBundleID: "com.apple.mail",
+                    appName: "Mail",
+                    promptID: mail.id
+                ),
+            ]
+
+            settings.setPromptOff(true, for: .edit)
+
+            let paused = settings.promptResolution(for: .edit, appBundleID: "com.apple.mail")
+            XCTAssertEqual(paused.source, .builtInDefault)
+            XCTAssertNil(paused.profile)
+            XCTAssertNil(paused.appBinding)
+            XCTAssertEqual(paused.systemPrompt, SettingsStore.defaultSystemPromptText(for: .edit))
+
+            settings.setSelectedPromptID(global.id, for: .edit)
+
+            XCTAssertFalse(settings.isPromptOff(for: .edit))
+            XCTAssertEqual(settings.promptResolution(for: .edit, appBundleID: nil).profile?.id, global.id)
+        }
+    }
+
     func testAppPromptBindings_reconcileInvalidPromptAndLegacyMode() {
         self.withPromptSettingsRestored {
             let settings = SettingsStore.shared
@@ -244,14 +290,14 @@ final class DictationE2ETests: XCTestCase {
         }
     }
 
-    func testUnavailableSelectedProviderFallsBackToOpenAI() {
+    func testUnavailableSelectedProviderClearsSelection() {
         self.withProviderSettingsRestored {
             let settings = SettingsStore.shared
 
             settings.savedProviders = []
             settings.selectedProviderID = "removed-provider"
 
-            XCTAssertEqual(settings.selectedProviderID, "openai")
+            XCTAssertEqual(settings.selectedProviderID, "")
         }
     }
 
@@ -394,6 +440,29 @@ final class DictationE2ETests: XCTestCase {
         }
     }
 
+    func testPrivateAIProviderDoesNotConfigureCommandMode() {
+        guard PrivateFeatures.privateAIProvider else { return }
+
+        self.withRestoredDefaults(
+            keys: [
+                self.selectedProviderIDKey,
+                self.commandModeLinkedToGlobalKey,
+                self.commandModeSelectedProviderIDKey,
+                self.commandModeSelectedModelKey,
+            ]
+        ) {
+            let settings = SettingsStore.shared
+            settings.selectedProviderID = PrivateAIProviderFeature.shared.providerID
+            settings.commandModeLinkedToGlobal = true
+            settings.commandModeSelectedProviderID = PrivateAIProviderFeature.shared.providerID
+            settings.commandModeSelectedModel = PrivateAIProviderFeature.shared.providerID
+
+            XCTAssertEqual(settings.effectiveCommandModeProviderID, "")
+            XCTAssertTrue(settings.commandModeReadinessIssue?.contains("coming soon") == true)
+            XCTAssertFalse(settings.isCommandModeProviderVerified(PrivateAIProviderFeature.shared.providerID))
+        }
+    }
+
     func testRollbackBackupsPreferFilenameTimestampOverModificationDate() {
         let firstBackupWithNewestModificationDate = URL(
             fileURLWithPath: "/tmp/FluidVoice-1.5.11-beta.1-100.app"
@@ -504,6 +573,7 @@ final class DictationE2ETests: XCTestCase {
                 self.selectedDictationPromptIDKey,
                 self.selectedEditPromptIDKey,
                 self.dictationPromptOffKey,
+                self.editPromptOffKey,
                 self.defaultDictationPromptOverrideKey,
                 self.defaultEditPromptOverrideKey,
             ],
@@ -531,6 +601,7 @@ final class DictationE2ETests: XCTestCase {
                 self.selectedDictationPromptIDKey,
                 self.selectedEditPromptIDKey,
                 self.dictationPromptOffKey,
+                self.editPromptOffKey,
                 self.defaultDictationPromptOverrideKey,
                 self.defaultEditPromptOverrideKey,
                 self.savedProvidersKey,

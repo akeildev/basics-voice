@@ -142,11 +142,13 @@ final class NotchOverlayManager {
 
     func show(audioLevelPublisher: AnyPublisher<CGFloat, Never>, mode: OverlayMode) {
         self.refreshNotchPresentationPolicy()
+        Self.overlayBench("show_called mode=\(mode.rawValue) state=\(self.state) commandExpanded=\(self.isCommandOutputExpanded)")
 
         // Don't show regular notch if expanded command output is visible
         if self.isCommandOutputExpanded {
             // Just store the publisher for later use
             self.lastAudioPublisher = audioLevelPublisher
+            Self.overlayBench("show_return reason=command_output_expanded")
             return
         }
 
@@ -156,6 +158,8 @@ final class NotchOverlayManager {
 
         // If already visible or in transition, wait for cleanup to complete
         if self.notch != nil || self.state != .idle {
+            Self.overlayBench("show_retry_after_cleanup state=\(self.state) notchExists=\(self.notch != nil)")
+
             // Increment generation to invalidate stale operations
             self.generation &+= 1
             let targetGeneration = self.generation
@@ -183,6 +187,7 @@ final class NotchOverlayManager {
     }
 
     private func showInternal(audioLevelPublisher: AnyPublisher<CGFloat, Never>, mode: OverlayMode) {
+        Self.overlayBench("show_internal_enter mode=\(mode.rawValue) state=\(self.state)")
         guard self.state == .idle else { return }
 
         // Store for potential re-show during processing
@@ -194,16 +199,21 @@ final class NotchOverlayManager {
 
         // Route to bottom overlay if user preference is set
         if SettingsStore.shared.overlayPosition == .bottom {
+            Self.overlayBench("show_internal_route target=bottom")
             self.showBottomOverlay(audioLevelPublisher: audioLevelPublisher, mode: mode)
             return
         }
 
         // Otherwise show notch overlay (original behavior)
+        Self.overlayBench("show_internal_route target=notch")
         self.showNotchOverlay(audioLevelPublisher: audioLevelPublisher, mode: mode, screen: targetScreen)
     }
 
     /// Show bottom overlay (alternative to notch)
     private func showBottomOverlay(audioLevelPublisher: AnyPublisher<CGFloat, Never>, mode: OverlayMode) {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        Self.overlayBench("bottom_route_start mode=\(mode.rawValue)")
+
         // Hide any existing notch first
         if self.notch != nil {
             Task { await self.performCleanup() }
@@ -214,10 +224,12 @@ final class NotchOverlayManager {
 
         BottomOverlayWindowController.shared.show(audioPublisher: audioLevelPublisher, mode: self.currentMode)
         self.isBottomOverlayVisible = true
+        Self.overlayBench("bottom_route_return elapsedMs=\(Self.elapsedMs(since: startedAt))")
     }
 
     /// Show notch overlay (original behavior)
     private func showNotchOverlay(audioLevelPublisher: AnyPublisher<CGFloat, Never>, mode: OverlayMode, screen: NSScreen?) {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let targetScreen = screen ?? self.preferredPresentationScreen()
         self.presentationPolicyScreen = targetScreen
         self.refreshNotchPresentationPolicy(for: targetScreen)
@@ -256,21 +268,32 @@ final class NotchOverlayManager {
 
         self.notch = newNotch
         let shouldUseCompactPresentation = self.currentNotchPresentationPolicy.usesCompactPresentation
+        let presentation = shouldUseCompactPresentation ? "compact" : "expanded"
+        Self.overlayBench("notch_task_scheduled mode=\(self.currentMode.rawValue) presentation=\(presentation) screen=\(targetScreen.localizedName)")
 
         // Resolve presentation from policy so future notch modes don't require call-site changes.
         Task { [weak self] in
+            Self.overlayBench("notch_animation_start presentation=\(presentation)")
             if shouldUseCompactPresentation {
                 await newNotch.compact(on: targetScreen)
             } else {
                 await newNotch.expand(on: targetScreen)
             }
+            Self.overlayBench("notch_animation_complete presentation=\(presentation) elapsedMs=\(Self.elapsedMs(since: startedAt))")
             // Only update state if we're still the active generation
-            guard let self = self, self.generation == currentGeneration else { return }
+            guard let self = self, self.generation == currentGeneration else {
+                Self.overlayBench("notch_visible_drop reason=stale_generation")
+                return
+            }
             self.state = .visible
+            Self.overlayBench("state_visible target=notch presentation=\(presentation)")
         }
     }
 
     func hide() {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        Self.overlayBench("hide_called state=\(self.state) bottomVisible=\(self.isBottomOverlayVisible)")
+
         // Stop monitoring active app changes
         ActiveAppMonitor.shared.stopMonitoring()
 
@@ -294,6 +317,7 @@ final class NotchOverlayManager {
         // Handle visible or showing states (can hide while still expanding)
         guard self.state == .visible || self.state == .showing, let currentNotch = notch else {
             // Force cleanup if stuck or in inconsistent state
+            Self.overlayBench("hide_return reason=not_visible state=\(self.state) notchExists=\(self.notch != nil)")
             Task { [weak self] in await self?.performCleanup() }
             return
         }
@@ -301,16 +325,22 @@ final class NotchOverlayManager {
         self.state = .hiding
 
         Task { [weak self] in
+            Self.overlayBench("hide_animation_start")
             await currentNotch.hide()
+            Self.overlayBench("hide_animation_complete elapsedMs=\(Self.elapsedMs(since: startedAt))")
             // Only clear if we're still the active operation
             guard let self = self, self.generation == currentGeneration else { return }
             self.notch = nil
             self.state = .idle
+            Self.overlayBench("state_idle target=notch")
         }
     }
 
     /// Async cleanup that properly waits for hide to complete
     private func performCleanup() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        Self.overlayBench("cleanup_start state=\(self.state) notchExists=\(self.notch != nil)")
+
         // Cancel any pending retry operations
         self.pendingRetryTask?.cancel()
         self.pendingRetryTask = nil
@@ -320,10 +350,12 @@ final class NotchOverlayManager {
         }
         self.notch = nil
         self.state = .idle
+        Self.overlayBench("cleanup_complete elapsedMs=\(Self.elapsedMs(since: startedAt))")
     }
 
     func setMode(_ mode: OverlayMode) {
         self.refreshNotchPresentationPolicy()
+        Self.overlayBench("set_mode mode=\(mode.rawValue)")
 
         // Always update NotchContentState to ensure UI stays in sync
         // (can get out of sync during show/hide transitions)
@@ -346,8 +378,12 @@ final class NotchOverlayManager {
     }
 
     func updateTranscriptionText(_ text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedText.isEmpty || Self.transientOverlayStatusTexts.contains(trimmedText) {
+            Self.overlayBench("text_update status=\(trimmedText.isEmpty ? "empty" : trimmedText)")
+        }
+
         guard self.shouldShowOrTrackLivePreviewText else {
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedText.isEmpty || Self.transientOverlayStatusTexts.contains(trimmedText) {
                 NotchContentState.shared.updateTranscription(text)
             } else if !NotchContentState.shared.transcriptionText.isEmpty {
@@ -359,27 +395,39 @@ final class NotchOverlayManager {
     }
 
     func setProcessing(_ processing: Bool) {
+        Self.overlayBench("set_processing processing=\(processing) state=\(self.state) bottomVisible=\(self.isBottomOverlayVisible) commandExpanded=\(self.isCommandOutputExpanded)")
         NotchContentState.shared.setProcessing(processing)
 
         // If expanded command output is showing, don't mess with regular notch
         if self.isCommandOutputExpanded {
+            Self.overlayBench("set_processing_return reason=command_output_expanded")
             return
         }
 
         // If bottom overlay is visible, update its processing state
         if self.isBottomOverlayVisible {
             BottomOverlayWindowController.shared.setProcessing(processing)
+            Self.overlayBench("set_processing_forwarded target=bottom")
             return
         }
 
         if processing {
             // If notch isn't visible, re-show it for processing state
             if self.state == .idle || self.state == .hiding {
+                Self.overlayBench("set_processing_reshow state=\(self.state)")
                 // Use stored publisher or create empty one
                 let publisher = self.lastAudioPublisher ?? Empty<CGFloat, Never>().eraseToAnyPublisher()
                 self.show(audioLevelPublisher: publisher, mode: self.currentMode)
             }
         }
+    }
+
+    private static func overlayBench(_ message: String) {
+        DebugLogger.shared.benchmark("OVERLAY_BENCH", message: "notch \(message)", source: "OverlayBenchmark")
+    }
+
+    private static func elapsedMs(since start: TimeInterval) -> Int {
+        Int(((ProcessInfo.processInfo.systemUptime - start) * 1000).rounded())
     }
 
     // MARK: - Expanded Command Output

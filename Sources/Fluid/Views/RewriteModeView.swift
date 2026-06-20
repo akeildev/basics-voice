@@ -175,13 +175,15 @@ struct RewriteModeView: View {
                 // Provider Selector (compact, searchable)
                 SearchableProviderPicker(
                     builtInProviders: self.builtInProvidersList,
-                    savedProviders: self.settings.savedProviders,
+                    savedProviders: self.settings.savedProviders.filter { !self.isPrivateAIProviderID($0.id) },
                     selectedProviderID: Binding(
                         get: { self.settings.rewriteModeSelectedProviderID },
                         set: { newValue in
                             // Prevent selecting disabled Apple Intelligence
                             if newValue == "apple-intelligence-disabled" {
-                                self.settings.rewriteModeSelectedProviderID = "openai"
+                                return
+                            } else if self.isPrivateAIProviderID(newValue) {
+                                return
                             } else {
                                 self.settings.rewriteModeSelectedProviderID = newValue
                             }
@@ -283,7 +285,17 @@ struct RewriteModeView: View {
 
     private func updateAvailableModels() {
         let currentProviderID = self.settings.rewriteModeSelectedProviderID
-        let currentModel = self.settings.rewriteModeSelectedModel ?? "gpt-4.1"
+        let currentModel = self.settings.rewriteModeSelectedModel ?? ""
+        if self.isPrivateAIProviderID(currentProviderID) {
+            self.settings.rewriteModeSelectedProviderID = ""
+            self.settings.rewriteModeSelectedModel = nil
+            self.availableModels = []
+            return
+        }
+        guard !currentProviderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            self.availableModels = []
+            return
+        }
 
         // Apple Intelligence has only one model
         if currentProviderID == "apple-intelligence" {
@@ -305,7 +317,7 @@ struct RewriteModeView: View {
 
         // If current model not in list, select first available
         if !self.availableModels.contains(currentModel) {
-            self.settings.rewriteModeSelectedModel = self.availableModels.first ?? "gpt-4.1"
+            self.settings.rewriteModeSelectedModel = self.availableModels.first
         }
     }
 
@@ -317,7 +329,12 @@ struct RewriteModeView: View {
         ModelRepository.shared.builtInProvidersList(
             includeAppleIntelligence: true,
             appleIntelligenceAvailable: AppleIntelligenceService.isAvailable
-        )
+        ).filter { !self.isPrivateAIProviderID($0.id) }
+    }
+
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
     }
 
     private var shortcutDisplay: String {

@@ -1456,17 +1456,28 @@ struct SettingsView: View {
 
                                 Spacer()
 
-                                Picker("", selection: self.$settings.parakeetFinalizationMode) {
+                                Picker("", selection: Binding(
+                                    get: {
+                                        self.settings.selectedSpeechModel.supportsFastDictationProcessing
+                                            ? self.settings.parakeetFinalizationMode
+                                            : .stableFullFinal
+                                    },
+                                    set: { mode in
+                                        if self.settings.selectedSpeechModel.supportsFastDictationProcessing {
+                                            self.settings.parakeetFinalizationMode = mode
+                                        }
+                                    }
+                                )) {
                                     ForEach(ParakeetFinalizationMode.allCases) { mode in
                                         Text(mode.displayName).tag(mode)
                                     }
                                 }
                                 .pickerStyle(.menu)
                                 .frame(width: 170, alignment: .trailing)
-                                .disabled(self.asr.isRunning)
+                                .disabled(self.asr.isRunning || !self.settings.selectedSpeechModel.supportsFastDictationProcessing)
                             }
 
-                            Text("Standard: most reliable. Fast: faster, but maybe inaccurate.")
+                            Text(self.settings.selectedSpeechModel.supportsFastDictationProcessing ? "Standard: most reliable. Fast: faster, but maybe inaccurate." : "Fast processing is available for Parakeet TDT v2 and v3.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -1487,7 +1498,6 @@ struct SettingsView: View {
             AnalyticsPrivacyView()
                 .frame(minWidth: 520, minHeight: 520)
                 .appTheme(self.theme)
-                .preferredColorScheme(.dark)
         }
         .sheet(isPresented: self.analyticsConfirmationBinding) {
             AnalyticsConfirmationView(

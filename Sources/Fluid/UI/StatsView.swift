@@ -104,7 +104,7 @@ struct StatsView: View {
                 Button("Cancel") {
                     self.showWPMEditor = false
                 }
-                .buttonStyle(.bordered)
+                .fluidButton(.compact, size: .small)
 
                 Button("Save") {
                     if let wpm = Int(editingWPM), wpm > 0 {
@@ -112,7 +112,7 @@ struct StatsView: View {
                     }
                     self.showWPMEditor = false
                 }
-                .buttonStyle(.borderedProminent)
+                .fluidButton(.accent, size: .small)
             }
         }
         .padding(16)

@@ -19,6 +19,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
     let windowTitle: String
     let characterCount: Int
     let wasAIProcessed: Bool
+    let processingModel: String?
     /// Non-nil when AI post-processing was configured but failed and we fell
     /// back to typing the raw transcription. The string carries the error
     /// message for display / debugging.
@@ -32,6 +33,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
         processedText: String,
         appName: String,
         windowTitle: String,
+        processingModel: String? = nil,
         aiProcessingError: String? = nil,
         audio: DictationAudioMetadata? = nil
     ) {
@@ -43,6 +45,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
         self.windowTitle = windowTitle
         self.characterCount = processedText.count
         self.wasAIProcessed = rawText != processedText
+        self.processingModel = processingModel
         self.aiProcessingError = aiProcessingError
         self.audio = audio
     }
@@ -56,6 +59,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
         windowTitle: String,
         characterCount: Int,
         wasAIProcessed: Bool,
+        processingModel: String?,
         aiProcessingError: String?,
         audio: DictationAudioMetadata?
     ) {
@@ -67,6 +71,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
         self.windowTitle = windowTitle
         self.characterCount = characterCount
         self.wasAIProcessed = wasAIProcessed
+        self.processingModel = processingModel
         self.aiProcessingError = aiProcessingError
         self.audio = audio
     }
@@ -81,13 +86,14 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
         self.windowTitle = try container.decode(String.self, forKey: .windowTitle)
         self.characterCount = try container.decode(Int.self, forKey: .characterCount)
         self.wasAIProcessed = try container.decode(Bool.self, forKey: .wasAIProcessed)
+        self.processingModel = try container.decodeIfPresent(String.self, forKey: .processingModel)
         self.aiProcessingError = try container.decodeIfPresent(String.self, forKey: .aiProcessingError)
         self.audio = try container.decodeIfPresent(DictationAudioMetadata.self, forKey: .audio)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, timestamp, rawText, processedText, appName, windowTitle
-        case characterCount, wasAIProcessed, aiProcessingError, audio
+        case characterCount, wasAIProcessed, processingModel, aiProcessingError, audio
     }
 
     /// Preview text for list display (first 80 chars)
@@ -128,6 +134,7 @@ struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable {
             windowTitle: self.windowTitle,
             characterCount: self.characterCount,
             wasAIProcessed: self.wasAIProcessed,
+            processingModel: self.processingModel,
             aiProcessingError: self.aiProcessingError,
             audio: audio
         )
@@ -169,6 +176,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         processedText: String,
         appName: String,
         windowTitle: String,
+        processingModel: String? = nil,
         aiProcessingError: String? = nil,
         audio: DictationAudioMetadata? = nil
     ) {
@@ -182,6 +190,7 @@ final class TranscriptionHistoryStore: ObservableObject {
             processedText: processedText,
             appName: appName,
             windowTitle: windowTitle,
+            processingModel: processingModel,
             aiProcessingError: aiProcessingError,
             audio: audio
         )

@@ -32,7 +32,7 @@ struct ThemedCard<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: configuration.cornerRadius, style: .continuous)
 
         self.content
-            .padding(self.padding ?? 14)
+            .padding(self.padding ?? self.theme.metrics.cardSurface.defaultPadding)
             .background(configuration.material, in: shape)
             .background(
                 shape
@@ -78,38 +78,37 @@ private extension ThemedCard {
         let hoverShadowBoost: Double
 
         init(style: ThemedCardStyle, theme: AppTheme) {
+            let cardSurface = theme.metrics.cardSurface
+            let variant: AppTheme.Metrics.CardSurface.Variant
+
             switch style {
             case .standard:
+                variant = cardSurface.standard
                 self.background = theme.palette.cardBackground
                 self.border = theme.palette.cardBorder
-                self.borderOpacity = 0.28
-                self.hoverBorderOpacity = 0.5
-                self.borderWidth = 1
                 self.material = theme.materials.card
                 self.cornerRadius = theme.metrics.corners.lg
                 self.shadow = theme.metrics.cardShadow
-                self.hoverShadowBoost = 0.12
             case .prominent:
+                variant = cardSurface.prominent
                 self.background = theme.palette.elevatedCardBackground
                 self.border = theme.palette.accent
-                self.borderOpacity = 0.25
-                self.hoverBorderOpacity = 0.55
-                self.borderWidth = 1.2
                 self.material = theme.materials.elevatedCard
                 self.cornerRadius = theme.metrics.corners.lg
                 self.shadow = theme.metrics.elevatedCardShadow
-                self.hoverShadowBoost = 0.15
             case .subtle:
+                variant = cardSurface.subtle
                 self.background = theme.palette.contentBackground
                 self.border = theme.palette.cardBorder
-                self.borderOpacity = 0.18
-                self.hoverBorderOpacity = 0.32
-                self.borderWidth = 0.8
                 self.material = theme.materials.card
                 self.cornerRadius = theme.metrics.corners.md
                 self.shadow = theme.metrics.cardShadow
-                self.hoverShadowBoost = 0.08
             }
+
+            self.borderOpacity = variant.borderOpacity
+            self.hoverBorderOpacity = variant.hoverBorderOpacity
+            self.borderWidth = variant.borderWidth
+            self.hoverShadowBoost = variant.hoverShadowBoost
         }
     }
 }

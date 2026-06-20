@@ -26,6 +26,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
 
     /// The required audio format for the analyzer
     private var analyzerFormat: AVAudioFormat?
+    private var preparedLocale: Locale?
 
     /// Thread-safe cache for model installation status.
     /// Protected by `_cacheQueue` for thread-safe access from both sync and async contexts.
@@ -37,9 +38,12 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
     // MARK: - Lifecycle
 
     func prepare(progressHandler: ((Double) -> Void)?) async throws {
+        let locale = self.selectedSpeechLocale()
+        let localeID = self.normalizedIdentifier(for: locale)
+
         // 1. Create a transcriber to check locale support and download if needed
         let transcriber = SpeechTranscriber(
-            locale: Locale.current,
+            locale: locale,
             transcriptionOptions: [],
             reportingOptions: [],
             attributeOptions: []
@@ -47,8 +51,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
 
         // 2. Check if locale is supported
         let supportedLocales = await SpeechTranscriber.supportedLocales
-        let currentLocaleID = Locale.current.identifier(.bcp47)
-        let isSupported = supportedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
+        let isSupported = supportedLocales.map { self.normalizedIdentifier(for: $0) }.contains(localeID)
 
         guard isSupported else {
             throw NSError(
@@ -60,10 +63,10 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
 
         // 3. Check if model is installed, download if needed
         let installedLocales = await SpeechTranscriber.installedLocales
-        let isInstalled = installedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
+        let isInstalled = installedLocales.map { self.normalizedIdentifier(for: $0) }.contains(localeID)
 
         if !isInstalled {
-            DebugLogger.shared.info("Downloading speech model for locale: \(currentLocaleID)", source: "AppleSpeechAnalyzerProvider")
+            DebugLogger.shared.info("Downloading speech model for locale: \(localeID)", source: "AppleSpeechAnalyzerProvider")
             if let downloader = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
                 // Report progress periodically during download
                 let progress = downloader.progress
@@ -80,6 +83,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         // 4. Get the best available audio format for conversion
         self.analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
         self.converter = BufferConverter()
+        self.preparedLocale = locale
 
         self.isReady = true
 
@@ -100,6 +104,7 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         self._cacheQueue.sync { self._modelsInstalledCache = false }
 
         self.isReady = false
+        self.preparedLocale = nil
     }
 
     /// Returns the cached result of whether models are installed (thread-safe).
@@ -122,13 +127,13 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
     /// - Returns: `true` if the current locale's speech model is installed on disk, `false` otherwise.
     func refreshModelsExistOnDiskAsync() async -> Bool {
         let installedLocales = await SpeechTranscriber.installedLocales
-        let currentLocaleID = Locale.current.identifier(.bcp47)
-        let isInstalled = installedLocales.map { $0.identifier(.bcp47) }.contains(currentLocaleID)
+        let localeID = self.normalizedIdentifier(for: self.selectedSpeechLocale())
+        let isInstalled = installedLocales.map { self.normalizedIdentifier(for: $0) }.contains(localeID)
 
         self._cacheQueue.sync { self._modelsInstalledCache = isInstalled }
 
         DebugLogger.shared.debug(
-            "AppleSpeechAnalyzer: Model installed check - locale: \(currentLocaleID), installed: \(isInstalled)",
+            "AppleSpeechAnalyzer: Model installed check - locale: \(localeID), installed: \(isInstalled)",
             source: "AppleSpeechAnalyzerProvider"
         )
 
@@ -147,10 +152,11 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
         }
 
         DebugLogger.shared.debug("AppleSpeechAnalyzer: Starting transcription with \(samples.count) samples", source: "AppleSpeechAnalyzerProvider")
+        let transcriptionLocale = self.preparedLocale ?? self.selectedSpeechLocale()
 
         // 1. Create a FRESH transcriber for this transcription
         let freshTranscriber = SpeechTranscriber(
-            locale: Locale.current,
+            locale: transcriptionLocale,
             transcriptionOptions: [],
             reportingOptions: [],
             attributeOptions: []
@@ -234,6 +240,14 @@ final class AppleSpeechAnalyzerProvider: TranscriptionProvider {
     }
 
     // MARK: - Helpers
+
+    private func selectedSpeechLocale() -> Locale {
+        SettingsStore.shared.selectedAppleSpeechLocale
+    }
+
+    private func normalizedIdentifier(for locale: Locale) -> String {
+        locale.identifier(.bcp47).replacingOccurrences(of: "_", with: "-")
+    }
 
     /// Converts raw [Float] samples (16kHz mono) to AVAudioPCMBuffer
     private func createPCMBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {

@@ -194,7 +194,7 @@ final class VoiceEngineSettingsViewModel: ObservableObject {
         let model = self.settings.selectedSpeechModel
         switch model {
         case .appleSpeech:
-            return "Apple Speech (Legacy) uses on-device recognition. No download required, works on Intel and Apple Silicon."
+            return "Apple Speech (Legacy) uses built-in macOS speech recognition. No model download required, works on Intel and Apple Silicon."
         case .appleSpeechAnalyzer:
             return "Apple Speech uses advanced on-device recognition with fast, accurate transcription. Requires macOS 26+."
         case .parakeetTDT:

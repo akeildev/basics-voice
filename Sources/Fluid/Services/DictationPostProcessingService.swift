@@ -27,7 +27,10 @@ final class DictationPostProcessingService {
         }
 
         let settings = SettingsStore.shared
-        let resolved = self.resolveProvider(settings: settings)
+        let resolved = self.resolveProvider(settings: settings, dictationSlot: dictationSlot)
+        guard !resolved.providerID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AIProcessingError.noVerifiedProvider
+        }
         DebugLogger.shared.debug(
             "DictationPostProcessingService using provider=\(resolved.providerKey), model=\(resolved.model)",
             source: "DictationPostProcessingService"
@@ -82,6 +85,10 @@ final class DictationPostProcessingService {
             return Result(text: trimmed, providerID: resolved.providerID, model: resolved.model)
         }
 
+        guard !resolved.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AIProcessingError.missingModel(provider: resolved.providerKey)
+        }
+
         let isLocal = ModelRepository.shared.isLocalEndpoint(resolved.baseURL)
         if !isLocal, resolved.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw AIProcessingError.missingAPIKey(provider: resolved.providerKey)
@@ -123,7 +130,20 @@ final class DictationPostProcessingService {
         )
     }
 
-    private func resolveProvider(settings: SettingsStore) -> ResolvedProvider {
+    private func resolveProvider(settings: SettingsStore, dictationSlot: SettingsStore.DictationShortcutSlot) -> ResolvedProvider {
+        if settings.dictationPromptSelection(for: dictationSlot) == .privateAI,
+           let modelID = PrivateAIProviderPromptFormat.verifiedModelID(settings: settings)
+        {
+            let providerID = PrivateAIProviderFeature.shared.providerID
+            return ResolvedProvider(
+                providerID: providerID,
+                providerKey: providerID,
+                baseURL: ModelRepository.shared.defaultBaseURL(for: providerID),
+                model: modelID,
+                apiKey: ""
+            )
+        }
+
         let providerID = settings.selectedProviderID
         let selectedModels = settings.selectedModelByProvider
         let providerKeys = settings.providerAPIKeys

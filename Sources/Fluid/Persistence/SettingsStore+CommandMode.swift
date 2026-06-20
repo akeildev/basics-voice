@@ -20,14 +20,14 @@ extension SettingsStore {
 
     var effectiveCommandModeProviderID: String {
         if self.commandModeLinkedToGlobal {
-            return self.selectedProviderID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return self.supportedCommandModeProviderID(self.selectedProviderID) ?? ""
         }
 
         if let providerID = self.supportedCommandModeProviderID(self.commandModeSelectedProviderID) {
             return providerID
         }
 
-        return self.commandModeSelectedProviderID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ""
     }
 
     var effectiveCommandModeSelectedModel: String {
@@ -54,8 +54,15 @@ extension SettingsStore {
         if sourceProviderID == "apple-intelligence" || sourceProviderID == "apple-intelligence-disabled" {
             return "Command Mode cannot use Apple Intelligence because terminal tools require a chat API. Choose a verified chat provider or turn Sync off."
         }
+        if self.isPrivateAIProviderID(sourceProviderID) {
+            return "\(PrivateAIProviderFeature.displayName) for Command Mode is coming soon. Choose a verified chat provider or turn Sync off."
+        }
 
         let providerID = self.effectiveCommandModeProviderID
+        guard !providerID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Command Mode needs a verified chat provider."
+        }
+
         let model = self.effectiveCommandModeSelectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
             return "Command Mode needs a selected chat model."
@@ -87,10 +94,12 @@ extension SettingsStore {
         let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard trimmed != "apple-intelligence", trimmed != "apple-intelligence-disabled" else { return nil }
+        guard !self.isPrivateAIProviderID(trimmed) else { return nil }
         return trimmed
     }
 
     func isCommandModeProviderVerified(_ providerID: String) -> Bool {
+        guard !self.isPrivateAIProviderID(providerID) else { return false }
         let key = ModelRepository.shared.providerKey(for: providerID)
         guard let stored = self.verifiedProviderFingerprints[key] else { return false }
 
@@ -118,8 +127,16 @@ extension SettingsStore {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    private func isPrivateAIProviderID(_ providerID: String) -> Bool {
+        PrivateFeatures.privateAIProvider &&
+            providerID.trimmingCharacters(in: .whitespacesAndNewlines) == PrivateAIProviderFeature.shared.providerID
+    }
+
     private func isUnsupportedCommandModeModel(_ model: String) -> Bool {
         let value = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if PrivateAIIntegrationService.shouldHandleDictation(model: value) {
+            return true
+        }
         if value.contains("embedding") || value.contains("rerank") || value.contains("moderation") {
             return true
         }
