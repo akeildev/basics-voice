@@ -2954,7 +2954,10 @@ final class SettingsStore: ObservableObject {
             self.dictationPromptProfiles = normalizedProfiles
         }
 
+        let privateAIPromptID = PrivateAIProviderPromptFormat.promptSelectionID
+
         if let id = self.selectedDictationPromptID,
+           !(PrivateFeatures.privateAIProvider && id == privateAIPromptID),
            self.dictationPromptProfiles.contains(where: { $0.id == id && $0.mode == .dictate }) == false
         {
             self.selectedDictationPromptID = nil
@@ -2967,6 +2970,7 @@ final class SettingsStore: ObservableObject {
         }
 
         if let id = self.promptModeSelectedPromptID,
+           !(PrivateFeatures.privateAIProvider && id == privateAIPromptID),
            self.dictationPromptProfiles.contains(where: { $0.id == id && $0.mode.normalized == .dictate }) == false
         {
             self.promptModeSelectedPromptID = nil
