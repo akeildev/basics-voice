@@ -2530,12 +2530,12 @@ struct ContentView: View {
         Task { @MainActor in
             // The hotkey fires on key-down while its own modifier keys (e.g. ⌘⌃) are still
             // physically held. Synthesizing text in that state makes the target app treat the
-            // characters as keyboard shortcuts and drop them, so wait for the modifiers to be
-            // released before inserting. (Dictation never hits this because by the time it types,
-            // no keys are held.) If they never release (stuck/held), abort rather than typing a
-            // corrupted — and possibly destructive — shortcut sequence; the user can retrigger.
-            guard await Self.waitForHotkeyModifiersReleased(timeout: 0.6) else {
-                DebugLogger.shared.info("Actions: Paste aborted - modifier keys still held", source: "ContentView")
+            // characters as keyboard shortcuts and drop them, so the paste lands once the keys are
+            // released — effectively "paste when you let go". The timeout is generous so a normal
+            // hold (or a quick repeated press) still pastes on release; it only aborts if a modifier
+            // is genuinely stuck, rather than typing a corrupted/destructive shortcut sequence.
+            guard await Self.waitForHotkeyModifiersReleased(timeout: 5) else {
+                DebugLogger.shared.info("Actions: Paste aborted - modifier keys still held after timeout", source: "ContentView")
                 return
             }
 
