@@ -77,6 +77,7 @@ enum ShortcutRecordingTarget: Hashable {
     case command
     case edit
     case cancel
+    case pasteLast
     case dictationPrompt(String)
     case newPrompt
 
@@ -92,6 +93,8 @@ enum ShortcutRecordingTarget: Hashable {
             return "Edit Mode"
         case .cancel:
             return "Cancel Recording"
+        case .pasteLast:
+            return "Paste Last Transcription"
         case .dictationPrompt:
             return "Prompt Shortcut"
         case .newPrompt:
@@ -101,7 +104,7 @@ enum ShortcutRecordingTarget: Hashable {
 
     var enablesFeatureOnAssignment: Bool {
         switch self {
-        case .secondaryDictation, .command, .edit:
+        case .secondaryDictation, .command, .edit, .pasteLast:
             return true
         case .primaryDictation, .cancel, .dictationPrompt, .newPrompt:
             return false
@@ -114,7 +117,12 @@ enum ShortcutRecordingTarget: Hashable {
     }
 
     var allowsMouseShortcut: Bool {
-        self.isPrimaryDictation
+        switch self {
+        case .primaryDictation, .pasteLast:
+            return true
+        case .secondaryDictation, .command, .edit, .cancel, .dictationPrompt, .newPrompt:
+            return false
+        }
     }
 
     var isPrimaryDictation: Bool {
@@ -182,6 +190,8 @@ struct ContentView: View {
     @State private var commandModeHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.commandModeHotkeyShortcut
     @State private var rewriteModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
     @State private var cancelRecordingHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.cancelRecordingHotkeyShortcut
+    @State private var pasteLastTranscriptionHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut
+    @State private var isPasteLastTranscriptionShortcutEnabled: Bool = SettingsStore.shared.pasteLastTranscriptionShortcutEnabled
     @State private var isPromptModeShortcutEnabled: Bool = SettingsStore.shared.promptModeShortcutEnabled
     @State private var isCommandModeShortcutEnabled: Bool = SettingsStore.shared.commandModeShortcutEnabled
     @State private var isRewriteModeShortcutEnabled: Bool = SettingsStore.shared.rewriteModeShortcutEnabled
@@ -456,6 +466,20 @@ struct ContentView: View {
             .onChange(of: self.isRewriteModeShortcutEnabled) { newValue in
                 self.handleRewriteShortcutEnabledChange(newValue)
             }
+            .onChange(of: self.pasteLastTranscriptionHotkeyShortcut) { _, newValue in
+                // The hotkey manager reads this value live from SettingsStore, so persisting is enough.
+                SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut = newValue
+            }
+            .onChange(of: self.isPasteLastTranscriptionShortcutEnabled) { newValue in
+                self.handlePasteLastTranscriptionShortcutEnabledChange(newValue)
+            }
+    }
+
+    private func handlePasteLastTranscriptionShortcutEnabledChange(_ isEnabled: Bool) {
+        SettingsStore.shared.pasteLastTranscriptionShortcutEnabled = isEnabled
+        if !isEnabled, self.activeShortcutRecordingTarget == .pasteLast {
+            self.clearShortcutRecordingMode()
+        }
     }
 
     private func handlePromptShortcutEnabledChange(_ isEnabled: Bool) {
@@ -974,7 +998,7 @@ struct ContentView: View {
     private func shortcutConflictMessage(for shortcut: HotkeyShortcut, target: ShortcutRecordingTarget) -> String? {
         if shortcut.isMouseShortcut {
             guard target.allowsMouseShortcut else {
-                return "Mouse clicks can only be assigned to Primary Dictation Shortcut"
+                return "Mouse clicks can only be assigned to Primary Dictation or Paste Last Transcription"
             }
 
             if shortcut.isUnmodifiedLeftOrRightClick, let mouseButton = shortcut.mouseButton {
@@ -999,6 +1023,7 @@ struct ContentView: View {
         ]
         let optionalConfiguredShortcuts: [(ShortcutRecordingTarget, HotkeyShortcut?)] = [
             (.command, self.commandModeHotkeyShortcut),
+            (.pasteLast, self.pasteLastTranscriptionHotkeyShortcut),
         ]
 
         for (otherTarget, configuredShortcut) in configuredShortcuts where otherTarget != target {
@@ -1064,6 +1089,10 @@ struct ContentView: View {
         case .cancel:
             self.cancelRecordingHotkeyShortcut = shortcut
             SettingsStore.shared.cancelRecordingHotkeyShortcut = shortcut
+        case .pasteLast:
+            // The hotkey manager reads this shortcut directly from SettingsStore, so no manager update is needed.
+            self.pasteLastTranscriptionHotkeyShortcut = shortcut
+            SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut = shortcut
         case let .dictationPrompt(key):
             guard let selection = SettingsStore.shared.dictationPromptSelection(forConfigurationKey: key) else { return }
             var configuration = SettingsStore.shared.dictationPromptConfiguration(for: selection)
@@ -1108,6 +1137,9 @@ struct ContentView: View {
             self.isRewriteModeShortcutEnabled = enabled
             SettingsStore.shared.rewriteModeShortcutEnabled = enabled
             self.hotkeyManager?.updateRewriteModeShortcutEnabled(enabled)
+        case .pasteLast:
+            self.isPasteLastTranscriptionShortcutEnabled = enabled
+            SettingsStore.shared.pasteLastTranscriptionShortcutEnabled = enabled
         case .primaryDictation, .cancel, .dictationPrompt, .newPrompt:
             break
         }
@@ -1435,8 +1467,10 @@ struct ContentView: View {
             commandModeShortcut: self.$commandModeHotkeyShortcut,
             rewriteShortcut: self.$rewriteModeHotkeyShortcut,
             cancelRecordingShortcut: self.$cancelRecordingHotkeyShortcut,
+            pasteLastTranscriptionShortcut: self.$pasteLastTranscriptionHotkeyShortcut,
             commandModeShortcutEnabled: self.$isCommandModeShortcutEnabled,
             rewriteShortcutEnabled: self.$isRewriteModeShortcutEnabled,
+            pasteLastTranscriptionShortcutEnabled: self.$isPasteLastTranscriptionShortcutEnabled,
             hotkeyManagerInitialized: self.$hotkeyManagerInitialized,
             hotkeyMode: self.$hotkeyMode,
             enableStreamingPreview: self.$enableStreamingPreview,
@@ -2478,6 +2512,91 @@ struct ContentView: View {
         DebugLogger.shared.info("Actions: Copied latest transcription to clipboard", source: "ContentView")
     }
 
+    /// Re-inserts the most recent transcription into the focused text field using the same
+    /// clipboard-free insertion path as live dictation. Unlike copy, this never touches the
+    /// system clipboard, and unlike reprocess, it pastes the existing text verbatim (no new
+    /// history entry, no reformatting). Useful when the original auto-insert dropped the tail.
+    private func pasteLastDictationFromHistory() {
+        guard let last = TranscriptionHistoryStore.shared.entries.first else {
+            DebugLogger.shared.info("Actions: Paste requested but history is empty", source: "ContentView")
+            return
+        }
+
+        // Prefer the processed text (what was actually delivered, possibly AI-enhanced),
+        // falling back to raw for older entries or when enhancement was off.
+        let processed = last.processedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = last.rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = processed.isEmpty ? raw : processed
+        guard !text.isEmpty else {
+            DebugLogger.shared.info("Actions: Paste skipped because latest history text is empty", source: "ContentView")
+            return
+        }
+
+        Task { @MainActor in
+            // Only one paste may be pending at a time. Because the paste waits for the modifier keys
+            // to release, a quick double/triple-tap of the chord would otherwise queue several Tasks
+            // that all insert at once on release. This collapses them to a single paste while still
+            // allowing a deliberate repeat (press, it lands, then press again).
+            guard !Self.isPasteLastInProgress else {
+                DebugLogger.shared.info("Actions: Paste skipped - a paste is already pending", source: "ContentView")
+                return
+            }
+            Self.isPasteLastInProgress = true
+            defer { Self.isPasteLastInProgress = false }
+
+            // The hotkey fires on key-down while its own modifier keys (e.g. ⌘⌃) are still
+            // physically held. Synthesizing text in that state makes the target app treat the
+            // characters as keyboard shortcuts and drop them, so the paste lands once the keys are
+            // released — effectively "paste when you let go". The timeout is generous so a normal
+            // hold (or a quick repeated press) still pastes on release; it only aborts if a modifier
+            // is genuinely stuck, rather than typing a corrupted/destructive shortcut sequence.
+            guard await Self.waitForHotkeyModifiersReleased(timeout: 5) else {
+                DebugLogger.shared.info("Actions: Paste aborted - modifier keys still held after timeout", source: "ContentView")
+                return
+            }
+
+            // Re-check here rather than only at the hotkey trigger: the overlay menu entry point
+            // has no pre-check, and the wait above may have elapsed since the trigger fired.
+            guard !self.asr.isRunning else {
+                DebugLogger.shared.info("Actions: Paste skipped - recording in progress", source: "ContentView")
+                return
+            }
+
+            let typingTarget = self.resolveTypingTargetPID()
+            guard typingTarget.pid != nil else {
+                DebugLogger.shared.info("Actions: Paste skipped - no external target field available", source: "ContentView")
+                return
+            }
+            if typingTarget.shouldRestoreOriginalFocus {
+                await self.restoreFocusToRecordingTarget()
+            }
+            self.asr.typeTextToActiveField(text, preferredTargetPID: typingTarget.pid)
+            DebugLogger.shared.info("Actions: Pasted latest transcription into focused field", source: "ContentView")
+        }
+    }
+
+    /// Guards against overlapping paste insertions: only one "paste last transcription" may be
+    /// pending at a time (see pasteLastDictationFromHistory). A rapid re-tap while one is still
+    /// waiting for the modifier keys to release is ignored rather than queuing a duplicate insert.
+    /// Only ever touched on the main actor.
+    private static var isPasteLastInProgress = false
+
+    /// Polls until the keyboard modifier keys are released, returning `true` once they are, or
+    /// `false` if the timeout elapses with keys still held. Used before synthesizing a paste so the
+    /// inserted characters aren't swallowed as modifier+key shortcuts.
+    private static func waitForHotkeyModifiersReleased(timeout: TimeInterval) async -> Bool {
+        let relevant: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift, .maskSecondaryFn]
+        let start = Date()
+        while Date().timeIntervalSince(start) < timeout {
+            let flags = CGEventSource.flagsState(.combinedSessionState)
+            if flags.isDisjoint(with: relevant) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 15_000_000) // 15ms
+        }
+        return false
+    }
+
     private func undoLastAIProcessingFromHistory() {
         guard let last = TranscriptionHistoryStore.shared.entries.first else {
             DebugLogger.shared.info("Actions: Undo AI requested but history is empty", source: "ContentView")
@@ -2999,6 +3118,9 @@ struct ContentView: View {
         NotchContentState.shared.onCopyLastRequested = {
             self.copyLastDictationFromHistory()
         }
+        NotchContentState.shared.onPasteLastRequested = {
+            self.pasteLastDictationFromHistory()
+        }
         NotchContentState.shared.onUndoLastAIRequested = {
             self.undoLastAIProcessingFromHistory()
         }
@@ -3167,6 +3289,11 @@ struct ContentView: View {
             }
 
             return handled
+        }
+
+        // Re-insert the most recent transcription on demand (no clipboard involved).
+        self.hotkeyManager?.setPasteLastTranscriptionCallback {
+            self.pasteLastDictationFromHistory()
         }
 
         // Monitor initialization status

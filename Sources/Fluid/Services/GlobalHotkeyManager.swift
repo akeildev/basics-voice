@@ -69,6 +69,7 @@ final class GlobalHotkeyManager: NSObject {
     private var isRewriteRecordingProvider: (() -> Bool)?
     private var isShortcutCaptureActiveProvider: (() -> Bool)?
     private var cancelCallback: (() -> Bool)? // Returns true if handled
+    private var pasteLastTranscriptionCallback: (() -> Void)?
     private var hotkeyMode: HotkeyActivationMode = SettingsStore.shared.hotkeyMode
     private let automaticTapThresholdSeconds: TimeInterval = 0.4
 
@@ -414,6 +415,10 @@ final class GlobalHotkeyManager: NSObject {
         self.cancelCallback = callback
     }
 
+    func setPasteLastTranscriptionCallback(_ callback: @escaping () -> Void) {
+        self.pasteLastTranscriptionCallback = callback
+    }
+
     private func setupGlobalHotkeyWithRetry() {
         for attempt in 1...self.maxRetryAttempts {
             DebugLogger.shared.debug("Setup attempt \(attempt)/\(self.maxRetryAttempts)", source: "GlobalHotkeyManager")
@@ -647,6 +652,18 @@ final class GlobalHotkeyManager: NSObject {
                 if handled {
                     return nil // Consume event only if we did something
                 }
+            }
+
+            // Check the "paste last transcription" shortcut (a one-shot action, like cancel).
+            if SettingsStore.shared.pasteLastTranscriptionShortcutEnabled,
+               let pasteShortcut = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut,
+               pasteShortcut.matches(keyCode: keyCode, modifiers: eventModifiers)
+            {
+                // Holding the chord emits auto-repeat key-downs; because the paste waits for the
+                // modifiers to release, every repeat would otherwise queue another insertion and
+                // paste N times. triggerPasteLastTranscription ignores repeats.
+                self.triggerPasteLastTranscription(isAutorepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+                return nil
             }
 
             if let assignment = self.promptShortcutAssignments.first(where: { $0.shortcut.matches(keyCode: keyCode, modifiers: eventModifiers) }) {
@@ -885,18 +902,14 @@ final class GlobalHotkeyManager: NSObject {
 
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             self.markOtherInputDuringModifierOnly()
-            let mouseButton = self.mouseButton(from: event)
-            if self.primaryShortcuts.contains(where: { $0.matchesMouse(button: mouseButton, modifiers: eventModifiers) }) {
-                guard self.beginPrimaryShortcutPress(.mouse(mouseButton)) else { return nil }
-                self.handlePrimaryDictationTriggerDown()
+            if self.handleMouseShortcutDown(event, modifiers: eventModifiers) {
                 return nil
             }
 
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            let mouseButton = self.mouseButton(from: event)
-            guard self.finishPrimaryShortcutPress(.mouse(mouseButton)) else { break }
-            self.handlePrimaryDictationTriggerUp()
-            return nil
+            if self.handleMouseShortcutUp(event) {
+                return nil
+            }
 
         case .flagsChanged:
             if HotkeyShortcut.modifierFlag(forKeyCode: keyCode) != nil {
@@ -1649,6 +1662,66 @@ final class GlobalHotkeyManager: NSObject {
                 source: "GlobalHotkeyManager"
             )
             await self.rewriteModeCallback?()
+        }
+    }
+
+    /// Handles a mouse-button down event against the configured mouse shortcuts. Returns true when
+    /// the event was consumed. "Paste Last Transcription" is a one-shot trigger (mirrors the keyboard
+    /// path); primary dictation begins a press here and ends it on mouse-up.
+    private func handleMouseShortcutDown(_ event: CGEvent, modifiers eventModifiers: NSEvent.ModifierFlags) -> Bool {
+        let mouseButton = self.mouseButton(from: event)
+
+        if SettingsStore.shared.pasteLastTranscriptionShortcutEnabled,
+           let pasteShortcut = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut,
+           pasteShortcut.matchesMouse(button: mouseButton, modifiers: eventModifiers)
+        {
+            self.triggerPasteLastTranscription(isAutorepeat: false)
+            return true
+        }
+
+        if self.primaryShortcuts.contains(where: { $0.matchesMouse(button: mouseButton, modifiers: eventModifiers) }) {
+            guard self.beginPrimaryShortcutPress(.mouse(mouseButton)) else { return true }
+            self.handlePrimaryDictationTriggerDown()
+            return true
+        }
+
+        return false
+    }
+
+    /// Handles a mouse-button up event. Swallows the up that pairs with a consumed paste mouse-down
+    /// so the focused app never sees an orphaned mouse-up; otherwise ends a primary dictation press.
+    private func handleMouseShortcutUp(_ event: CGEvent) -> Bool {
+        let mouseButton = self.mouseButton(from: event)
+
+        if SettingsStore.shared.pasteLastTranscriptionShortcutEnabled,
+           let pasteShortcut = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut,
+           pasteShortcut.isMouseShortcut,
+           pasteShortcut.mouseButton == mouseButton
+        {
+            return true
+        }
+
+        guard self.finishPrimaryShortcutPress(.mouse(mouseButton)) else { return false }
+        self.handlePrimaryDictationTriggerUp()
+        return true
+    }
+
+    private func triggerPasteLastTranscription(isAutorepeat: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            // Holding the chord auto-repeats the key-down; act only on the initial press.
+            guard !isAutorepeat else { return }
+            guard self.canTriggerRecordingAction("Paste last transcription hotkey") else { return }
+            // Re-pasting mid-recording would be surprising; ignore while capture is active.
+            guard !self.asrService.isRunning else {
+                DebugLogger.shared.info(
+                    "Paste last transcription hotkey ignored - recording in progress",
+                    source: "GlobalHotkeyManager"
+                )
+                return
+            }
+            DebugLogger.shared.info("Paste last transcription hotkey triggered", source: "GlobalHotkeyManager")
+            self.pasteLastTranscriptionCallback?()
         }
     }
 
