@@ -2667,13 +2667,12 @@ final class SettingsStore: ObservableObject {
 
     /// Whether the model rejects the `temperature` parameter.
     /// Covers reasoning models plus Anthropic models that have deprecated temperature
-    /// (adaptive-thinking models: Opus 4.7+, Sonnet 4.6+, Sonnet 5, Fable/Mythos 5).
+    /// (Opus 4.7+, Sonnet 5, Fable/Mythos 5 — Sonnet 4.6 and older still accept it).
     func isTemperatureUnsupported(_ model: String) -> Bool {
         if self.isReasoningModel(model) { return true }
         let modelLower = model.lowercased()
         return modelLower.contains("claude-opus-4-7")
             || modelLower.contains("claude-opus-4-8")
-            || modelLower.contains("claude-sonnet-4-6")
             || modelLower.contains("claude-sonnet-5")
             || modelLower.contains("claude-fable")
             || modelLower.contains("claude-mythos")
