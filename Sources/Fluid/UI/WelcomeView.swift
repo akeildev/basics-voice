@@ -470,6 +470,10 @@ struct WelcomeView: View {
                 .controlSize(.small)
             }
 
+            Label("Configure an AI model provider in AI Settings before using Edit Mode.", systemImage: "info.circle")
+                .font(self.theme.typography.caption)
+                .foregroundStyle(.secondary)
+
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Create New Text")
