@@ -33,10 +33,10 @@ jobs:
             Add the `keep-open` or `pinned` label to prevent automatic closure.
 
           close-issue-message: >
-            Closing this issue because it remained inactive for 7 days after
+            Closing this issue because it remained inactive for 2 days after
             being marked stale.
           close-pr-message: >
-            Closing this pull request because it remained inactive for 7 days
+            Closing this pull request because it remained inactive for 2 days
             after being marked stale.
 
           exempt-issue-labels: keep-open,pinned,needs reproduction
@@ -45,19 +45,3 @@ jobs:
           remove-stale-when-updated: true
           close-issue-reason: not_planned
           delete-branch: false
-
-      # Older issues are excluded from the general pass by start-date. Once a
-      # maintainer labels one `awaiting response`, process it in this pass.
-      - uses: actions/stale@v10
-        with:
-          days-before-stale: 0
-          days-before-close: 3
-          only-issue-labels: awaiting response
-          stale-issue-label: stale
-          stale-issue-message: >
-            This issue is awaiting a response. It will be closed in 3 days if
-            there is no further activity.
-          close-issue-message: >
-            Closing this issue because it remained awaiting a response for 3 days.
-          remove-stale-when-updated: true
-          close-issue-reason: not_planned

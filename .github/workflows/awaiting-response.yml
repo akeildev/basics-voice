@@ -1,0 +1,33 @@
+name: Close Older Issues Awaiting Response
+
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  awaiting-response:
+    name: Close older issues awaiting response
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout policy from default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enforce awaiting response policy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/policy/enforce-awaiting-response.mjs
