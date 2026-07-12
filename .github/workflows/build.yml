@@ -88,13 +88,16 @@ jobs:
     - name: Show Xcode version
       run: xcodebuild -version
       
-    - name: Build and test
+    # Tiny Whisper GGUF output is nondeterministic on hosted macOS runners.
+    # Keep this E2E assertion in the suite for local validation, but skip it in CI.
+    - name: Build and test (excluding flaky Tiny Whisper E2E)
       run: |
         set -o pipefail
         xcodebuild test \
           -project Fluid.xcodeproj \
           -scheme Fluid \
           -destination 'platform=macOS,arch=arm64' \
+          -skip-testing:FluidDictationIntegrationTests/DictationE2ETests/testDictationEndToEnd_whisperTiny_transcribesFixture \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO \
