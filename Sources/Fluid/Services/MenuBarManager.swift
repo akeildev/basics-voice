@@ -27,12 +27,27 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     /// Overlay management (persistent, independent of window lifecycle)
-    private var overlayVisible: Bool = false
+    private var overlayVisible: Bool = false {
+        didSet { self.updateNotchHUDSuppression() }
+    }
 
     /// Track when AI processing is active.
     /// When recording stops, ASRService flips `isRunning` to false, which would normally hide the
     /// overlay. During post-processing we want the overlay to stay visible until processing ends.
-    private var isProcessingActive: Bool = false
+    private var isProcessingActive: Bool = false {
+        didSet { self.updateNotchHUDSuppression() }
+    }
+
+    /// The persistent notch task HUD must yield the notch to the recording
+    /// overlay whenever the overlay is (or is about to be) on screen at the
+    /// TOP position. `didSet` on the two state vars above covers every
+    /// mutation site without sprinkling calls through the show/hide paths.
+    /// Bottom-position overlay users keep the HUD visible throughout.
+    private func updateNotchHUDSuppression() {
+        let overlayOwnsNotch = SettingsStore.shared.overlayPosition == .top
+            && (self.overlayVisible || self.isProcessingActive || NotchOverlayManager.shared.isCommandOutputExpanded)
+        NotchHUDController.active?.setSuppressed(overlayOwnsNotch)
+    }
 
     @Published var isRecording: Bool = false
 

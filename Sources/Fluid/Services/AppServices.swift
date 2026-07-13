@@ -78,6 +78,18 @@ final class AppServices: ObservableObject {
         return coordinator
     }
 
+    /// Persistent notch task HUD (lazily initialized)
+    private var _notchHUD: NotchHUDController?
+    var notchHUD: NotchHUDController {
+        if let existing = self._notchHUD {
+            return existing
+        }
+        DebugLogger.shared.info("🗒️ Lazily creating NotchHUDController", source: "AppServices")
+        let controller = NotchHUDController()
+        self._notchHUD = controller
+        return controller
+    }
+
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -120,6 +132,7 @@ final class AppServices: ObservableObject {
         // Access the properties to trigger lazy initialization
         _ = self.audioObserver
         _ = self.asr
+        self.notchHUD.start()
 
         DebugLogger.shared.info("✅ All services initialized", source: "AppServices")
     }
@@ -129,5 +142,7 @@ final class AppServices: ObservableObject {
             await asr.shutdownForTermination()
             self._asr = nil
         }
+        self._notchHUD?.stop()
+        self._notchHUD = nil
     }
 }
