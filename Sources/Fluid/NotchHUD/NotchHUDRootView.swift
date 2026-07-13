@@ -11,23 +11,20 @@ final class NotchHUDState: ObservableObject {
     @Published var isSuppressed: Bool = false
 }
 
-/// Hover state machine + collapsed/expanded layout.
-///
-/// Hover contract (values proven by an existing notch companion implementation):
-/// 0.3 s dwell before expanding (prevents accidental flicks), 100 ms debounce
-/// before collapsing (prevents flicker crossing internal gaps).
+/// Collapsed/expanded layout. Expansion is driven entirely by
+/// NotchHUDController's mouse-position poll — deliberately NOT SwiftUI
+/// `.onHover`: when this view resizes, its hover tracking area is rebuilt and
+/// fires a spurious exit, producing an expand/collapse oscillation (observed
+/// live before switching to polling).
 struct NotchHUDRootView: View {
     @ObservedObject var state: NotchHUDState
 
-    @State private var hoverTask: Task<Void, Never>?
-
-    private static let openSize = CGSize(width: 420, height: 180)
+    static let openSize = CGSize(width: 420, height: 180)
 
     var body: some View {
         VStack(spacing: 0) {
             if !self.state.isSuppressed {
                 self.notchBody
-                    .onHover { hovering in self.handleHover(hovering) }
             }
             Spacer(minLength: 0)
         }
@@ -63,11 +60,17 @@ struct NotchHUDRootView: View {
         )
     }
 
+    /// Collapsed visual width: notch footprint plus the right text wing.
+    /// Kept in sync with NotchHUDController's hit-test math.
+    static func collapsedWidth(closedSize: CGSize) -> CGFloat {
+        closedSize.width + 140
+    }
+
     // MARK: - Spike content (Unit 1 only — replaced by TaskListWidget in Unit 3)
 
     /// Collapsed: the notch footprint plus a right "wing" for the current task.
     private var collapsedWidth: CGFloat {
-        self.state.closedSize.width + 140
+        Self.collapsedWidth(closedSize: self.state.closedSize)
     }
 
     private var collapsedContent: some View {
@@ -110,22 +113,4 @@ struct NotchHUDRootView: View {
         .frame(width: Self.openSize.width, height: Self.openSize.height, alignment: .topLeading)
     }
 
-    // MARK: - Hover machine
-
-    private func handleHover(_ hovering: Bool) {
-        self.hoverTask?.cancel()
-        self.hoverTask = Task { @MainActor in
-            if hovering {
-                // Dwell before expanding.
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                guard !Task.isCancelled else { return }
-                self.state.isExpanded = true
-            } else {
-                // Short debounce before collapsing.
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                guard !Task.isCancelled else { return }
-                self.state.isExpanded = false
-            }
-        }
-    }
 }

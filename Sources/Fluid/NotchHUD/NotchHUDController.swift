@@ -29,6 +29,7 @@ final class NotchHUDController {
     func start() {
         guard self.panel == nil else { return }
         self.createPanel()
+        self.startHoverPolling()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.screenConfigurationChanged),
@@ -40,9 +41,69 @@ final class NotchHUDController {
 
     func stop() {
         NotificationCenter.default.removeObserver(self)
+        self.hoverTimer?.invalidate()
+        self.hoverTimer = nil
         self.panel?.orderOut(nil)
         self.panel = nil
         DebugLogger.shared.info("Notch HUD stopped", source: "NotchHUD")
+    }
+
+    // MARK: - Hover polling
+    //
+    // Expansion is driven by polling NSEvent.mouseLocation against the HUD's
+    // visual bounds — NOT SwiftUI .onHover. When the HUD resizes, SwiftUI
+    // rebuilds the hover tracking area and fires a spurious exit, which
+    // produced a live expand/collapse oscillation. Polling at 100 ms is
+    // deterministic, cheap, and immune to view-lifecycle churn.
+    // Dwell: 0.3 s inside before expanding; 0.2 s outside before collapsing.
+
+    private var hoverTimer: Timer?
+    private var insideSince: Date?
+    private var outsideSince: Date?
+
+    private func startHoverPolling() {
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.hoverTick()
+            }
+        }
+        timer.tolerance = 0.03
+        RunLoop.main.add(timer, forMode: .common)
+        self.hoverTimer = timer
+    }
+
+    private func hoverTick() {
+        guard self.panel != nil, !self.state.isSuppressed else {
+            self.insideSince = nil
+            self.outsideSince = nil
+            return
+        }
+        let inside = self.mouseInsideVisualBounds(expanded: self.state.isExpanded)
+        let now = Date()
+
+        if inside {
+            self.outsideSince = nil
+            if self.state.isExpanded { return }
+            if let since = self.insideSince {
+                if now.timeIntervalSince(since) >= 0.3 {
+                    self.state.isExpanded = true
+                    DebugLogger.shared.debug("HUD expanded (poll)", source: "NotchHUD")
+                }
+            } else {
+                self.insideSince = now
+            }
+        } else {
+            self.insideSince = nil
+            if !self.state.isExpanded { return }
+            if let since = self.outsideSince {
+                if now.timeIntervalSince(since) >= 0.2 {
+                    self.state.isExpanded = false
+                    DebugLogger.shared.debug("HUD collapsed (poll)", source: "NotchHUD")
+                }
+            } else {
+                self.outsideSince = now
+            }
+        }
     }
 
     /// Hide/show around the recording overlay. 150 ms fade, generation-guarded.
@@ -103,6 +164,25 @@ final class NotchHUDController {
             "Notch HUD repositioned after screen change (screen=\(screen?.localizedName ?? "none"))",
             source: "NotchHUD"
         )
+    }
+
+    /// AppKit-side hit test against the HUD's current visual bounds (global,
+    /// bottom-left-origin coordinates). Ground truth for expand/collapse.
+    private func mouseInsideVisualBounds(expanded: Bool) -> Bool {
+        guard let panelFrame = self.panel?.frame else { return false }
+        let size: CGSize = expanded
+            ? NotchHUDRootView.openSize
+            : CGSize(
+                width: NotchHUDRootView.collapsedWidth(closedSize: self.state.closedSize),
+                height: self.state.closedSize.height
+            )
+        let rect = NSRect(
+            x: panelFrame.midX - size.width / 2,
+            y: panelFrame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+        return rect.contains(NSEvent.mouseLocation)
     }
 
     // MARK: - Geometry
