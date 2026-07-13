@@ -10,6 +10,7 @@ enum NotificationService {
         static let aiProcessingFallback = "aiProcessingFallback"
         static let commandModeFailure = "commandModeFailure"
         static let pokeResult = "pokeResult"
+        static let taskResult = "taskResult"
     }
 
     static func showAIProcessingFallback(error: String) {
@@ -99,6 +100,49 @@ enum NotificationService {
                 )
             @unknown default:
                 break
+            }
+        }
+    }
+
+    /// Shown after a voice task command: what was applied (or why nothing was).
+    /// Ungated for the same reason as Poke — the HUD updates silently otherwise.
+    static func showTaskResult(success: Bool, detail: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                self.deliverTaskResult(success: success, detail: detail, using: center)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    guard granted else { return }
+                    self.deliverTaskResult(success: success, detail: detail, using: center)
+                }
+            case .denied:
+                break
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private static func deliverTaskResult(success: Bool, detail: String, using center: UNUserNotificationCenter) {
+        let content = UNMutableNotificationContent()
+        content.title = success ? "Tasks updated" : "Task command failed"
+        content.body = detail
+        content.sound = nil
+        content.userInfo = [UserInfoKey.kind: Kind.taskResult]
+
+        let request = UNNotificationRequest(
+            identifier: "task-result-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        center.add(request) { addError in
+            if let addError {
+                DebugLogger.shared.warning(
+                    "Failed to show task notification: \(addError.localizedDescription)",
+                    source: "NotificationService"
+                )
             }
         }
     }
