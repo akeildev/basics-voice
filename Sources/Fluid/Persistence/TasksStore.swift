@@ -12,16 +12,38 @@ enum FluidTaskStatus: String, Codable {
 struct FluidTask: Codable, Identifiable, Equatable {
     var id: UUID
     var title: String
+    /// 1-2 word label for the collapsed notch wing (interpreter-provided).
+    var shortTitle: String?
     var status: FluidTaskStatus
     var createdAt: Date
     var completedAt: Date?
 
-    init(id: UUID = UUID(), title: String, status: FluidTaskStatus = .upcoming) {
+    init(id: UUID = UUID(), title: String, shortTitle: String? = nil, status: FluidTaskStatus = .upcoming) {
         self.id = id
         self.title = title
+        self.shortTitle = shortTitle
         self.status = status
         self.createdAt = Date()
         self.completedAt = nil
+    }
+
+    /// Always-fits label for the collapsed pill: the interpreter's short title,
+    /// else the first two significant words of the full title.
+    var compactLabel: String {
+        if let shortTitle, !shortTitle.isEmpty { return shortTitle }
+        return Self.deriveShortLabel(from: self.title)
+    }
+
+    private static let stopwords: Set<String> = [
+        "the", "a", "an", "to", "on", "of", "for", "in", "at", "with", "my", "our", "and", "up",
+    ]
+
+    static func deriveShortLabel(from title: String) -> String {
+        let words = title
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty && !self.stopwords.contains($0.lowercased()) }
+        let picked = words.prefix(2)
+        return picked.isEmpty ? title : picked.joined(separator: " ")
     }
 }
 
@@ -40,6 +62,8 @@ struct TaskOp: Codable, Equatable {
     var op: Kind
     var id: String?
     var title: String?
+    /// 1-2 word display label supplied by the interpreter for start/add/update.
+    var short: String?
     var reason: String?
 }
 
@@ -108,11 +132,16 @@ final class TasksStore: ObservableObject {
                 let target = self.resolveTask(id: op.id, title: op.title)
                 if let target {
                     self.setCurrent(target.id)
+                    if let short = op.short, !short.isEmpty,
+                       let idx = self.tasks.firstIndex(where: { $0.id == target.id })
+                    {
+                        self.tasks[idx].shortTitle = short
+                    }
                     applied += 1
                     summaries.append("Started “\(target.title)”")
                 } else if let title = op.title, !title.trimmingCharacters(in: .whitespaces).isEmpty {
                     // Unknown title: create it and start it.
-                    var task = FluidTask(title: title)
+                    var task = FluidTask(title: title, shortTitle: op.short)
                     task.status = .upcoming
                     self.tasks.append(task)
                     self.setCurrent(task.id)
@@ -145,7 +174,7 @@ final class TasksStore: ObservableObject {
                     rejected.append("Add without a title")
                     continue
                 }
-                self.tasks.append(FluidTask(title: title))
+                self.tasks.append(FluidTask(title: title, shortTitle: op.short))
                 applied += 1
                 summaries.append("Added “\(title)”")
 
@@ -158,6 +187,7 @@ final class TasksStore: ObservableObject {
                     continue
                 }
                 self.tasks[idx].title = title
+                self.tasks[idx].shortTitle = op.short
                 applied += 1
                 summaries.append("Updated to “\(title)”")
 

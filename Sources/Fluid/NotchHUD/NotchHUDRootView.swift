@@ -19,6 +19,7 @@ final class NotchHUDState: ObservableObject {
 struct NotchHUDRootView: View {
     @ObservedObject var state: NotchHUDState
     @ObservedObject var tasks: TasksStore = .shared
+    @State private var doneHovering = false
 
     // MARK: - Shared geometry (controller hit-test uses the same math)
 
@@ -139,8 +140,8 @@ struct NotchHUDRootView: View {
     }
 
     private var collapsedTitle: String {
-        self.tasks.currentTask?.title
-            ?? self.tasks.upcomingTasks.first.map { "Next: \($0.title)" }
+        self.tasks.currentTask?.compactLabel
+            ?? self.tasks.upcomingTasks.first.map { "Next: \($0.compactLabel)" }
             ?? "No tasks"
     }
 
@@ -183,6 +184,22 @@ struct NotchHUDRootView: View {
                         .foregroundStyle(self.tasks.currentTask == nil ? .white.opacity(0.28) : self.accent.opacity(0.85))
                 }
                 Spacer(minLength: 0)
+                if self.tasks.currentTask != nil {
+                    Button {
+                        _ = self.tasks.apply([TaskOp(op: .done)])
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22, weight: .regular))
+                            .foregroundStyle(
+                                self.doneHovering ? self.accent : .white.opacity(0.28),
+                                self.doneHovering ? self.accent.opacity(0.22) : .white.opacity(0.08)
+                            )
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { self.doneHovering = $0 }
+                    .help("Mark done")
+                }
             }
             .padding(.bottom, 12)
 
