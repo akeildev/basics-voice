@@ -648,6 +648,10 @@ struct ContentView: View {
             DebugLogger.shared.info("🚦 Startup delay complete, signaling UI ready...", source: "ContentView")
             self.appServices.signalUIReady()
 
+            // Mount the persistent notch task HUD now that the UI-ready gate has
+            // passed (never earlier — see AppServices' defensive-startup notes).
+            self.appServices.notchHUD.start()
+
             DebugLogger.shared.info("🔊 Starting delayed audio initialization...", source: "ContentView")
             self.audioObserver.startObserving()
             self.asr.initialize()
