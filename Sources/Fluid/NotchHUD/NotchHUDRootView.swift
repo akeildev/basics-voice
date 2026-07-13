@@ -20,6 +20,7 @@ struct NotchHUDRootView: View {
     @ObservedObject var state: NotchHUDState
     @ObservedObject var tasks: TasksStore = .shared
     @State private var doneHovering = false
+    @State private var hoveredRowID: UUID?
 
     // MARK: - Shared geometry (controller hit-test uses the same math)
 
@@ -221,18 +222,7 @@ struct NotchHUDRootView: View {
                 .frame(height: 26)
             } else {
                 ForEach(self.tasks.upcomingTasks.prefix(Self.maxUpcomingShown)) { task in
-                    HStack(spacing: 9) {
-                        Image(systemName: "circle")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.25))
-                        Text(task.title)
-                            .font(.system(size: 12.5, weight: .regular))
-                            .foregroundStyle(.white.opacity(0.82))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(height: 26)
+                    self.upcomingRow(task)
                 }
                 if self.tasks.upcomingTasks.count > Self.maxUpcomingShown {
                     Text("+\(self.tasks.upcomingTasks.count - Self.maxUpcomingShown) more")
@@ -254,6 +244,42 @@ struct NotchHUDRootView: View {
             ).height,
             alignment: .topLeading
         )
+    }
+
+    /// One interactive queue row: click the circle to complete THIS task
+    /// (regardless of what's current); click the title to make it current.
+    private func upcomingRow(_ task: FluidTask) -> some View {
+        let hovered = self.hoveredRowID == task.id
+        return HStack(spacing: 9) {
+            Button {
+                _ = self.tasks.apply([TaskOp(op: .done, id: task.id.uuidString)])
+            } label: {
+                Image(systemName: hovered ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: hovered ? 12 : 10, weight: .medium))
+                    .foregroundStyle(hovered ? self.accent : .white.opacity(0.25))
+                    .frame(width: 14)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Complete “\(task.title)”")
+
+            Button {
+                _ = self.tasks.apply([TaskOp(op: .start, id: task.id.uuidString)])
+            } label: {
+                Text(task.title)
+                    .font(.system(size: 12.5, weight: hovered ? .medium : .regular))
+                    .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.82))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Start “\(task.title)”")
+
+            Spacer(minLength: 0)
+        }
+        .frame(height: 26)
+        .onHover { self.hoveredRowID = $0 ? task.id : (self.hoveredRowID == task.id ? nil : self.hoveredRowID) }
     }
 
     private var upNextCountLabel: String {
