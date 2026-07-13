@@ -95,8 +95,9 @@ final class ConduitTaskClient {
         You are a task-command interpreter for a voice task tracker. The user spoke a command; \
         map it onto operations against their task list. Reply with ONLY a JSON object, no prose, \
         no code fences, matching exactly:
-        {"ops":[{"op":"start|done|add|update|remove|none","id":"<uuid, when referring to an existing task>","title":"<title, for start/add/update>","reason":"<only for none>"}]}
+        {"ops":[{"op":"start|done|add|update|remove|none","id":"<uuid, when referring to an existing task>","title":"<title, for start/add/update>","short":"<1-2 word label for start/add/update>","reason":"<only for none>"}]}
         Rules:
+        - "short" is a crisp 1-2 word display label for the task (e.g. title "review the quarterly report" → short "Report review"). Always include it for start/add/update.
         - "start X" → op start (match X to an existing task's id when one clearly matches, else provide title to create it).
         - "done" / "finished" / "completed" (no target) → op done for the CURRENT task.
         - "add X" / "remind me to X" / "I need to X later" → op add.
