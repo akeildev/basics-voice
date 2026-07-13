@@ -2,7 +2,8 @@ import SwiftUI
 
 enum FluidInteractionVisuals {
     static let hoverScale: CGFloat = 1.01
-    static let pressedScale: CGFloat = 0.97
+    /// 0.96 exactly — the tactile sweet spot; below 0.95 reads as exaggerated.
+    static let pressedScale: CGFloat = 0.96
     static let hoverAnimation: Animation = .spring(response: 0.18, dampingFraction: 0.78)
     static let pressedAnimation: Animation = .spring(response: 0.2, dampingFraction: 0.8)
 
