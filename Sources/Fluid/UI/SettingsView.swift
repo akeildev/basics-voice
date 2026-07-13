@@ -38,10 +38,12 @@ struct SettingsView: View {
     @Binding var activeShortcutRecordingTarget: ShortcutRecordingTarget?
     @Binding var shortcutRecordingMessage: String?
     @Binding var commandModeShortcut: HotkeyShortcut?
+    @Binding var pokeShortcut: HotkeyShortcut?
     @Binding var rewriteShortcut: HotkeyShortcut
     @Binding var cancelRecordingShortcut: HotkeyShortcut
     @Binding var pasteLastTranscriptionShortcut: HotkeyShortcut?
     @Binding var commandModeShortcutEnabled: Bool
+    @Binding var pokeShortcutEnabled: Bool
     @Binding var rewriteShortcutEnabled: Bool
     @Binding var pasteLastTranscriptionShortcutEnabled: Bool
     @Binding var hotkeyManagerInitialized: Bool
@@ -718,6 +720,35 @@ struct SettingsView: View {
                                             }
                                             self.commandModeShortcut = nil
                                             self.commandModeShortcutEnabled = false
+                                        }
+                                    )
+                                    Divider().opacity(0.2).padding(.vertical, 4)
+
+                                    self.shortcutRow(
+                                        content: .init(
+                                            icon: "paperplane.fill",
+                                            iconColor: .secondary,
+                                            title: "Send to Poke",
+                                            description: "Speak and send the transcript to Poke"
+                                        ),
+                                        shortcut: self.pokeShortcut,
+                                        isRecording: self.isRecording(.poke),
+                                        isAnyRecordingActive: self.isRecordingAnyShortcut,
+                                        recordingMessage: self.isRecording(.poke) ? self.shortcutRecordingMessage : nil,
+                                        isEnabled: self.$pokeShortcutEnabled,
+                                        requiresShortcutToEnable: true,
+                                        onChangePressed: {
+                                            DebugLogger.shared.debug("Starting to record new poke shortcut", source: "SettingsView")
+                                            self.shortcutRecordingMessage = nil
+                                            self.activeShortcutRecordingTarget = .poke
+                                        },
+                                        onRemovePressed: {
+                                            if self.activeShortcutRecordingTarget == .poke {
+                                                self.shortcutRecordingMessage = nil
+                                                self.activeShortcutRecordingTarget = nil
+                                            }
+                                            self.pokeShortcut = nil
+                                            self.pokeShortcutEnabled = false
                                         }
                                     )
                                     Divider().opacity(0.2).padding(.vertical, 4)

@@ -2529,6 +2529,38 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var pokeShortcutEnabled: Bool {
+        get {
+            let value = self.defaults.object(forKey: Keys.pokeShortcutEnabled)
+            return value as? Bool ?? false
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.pokeShortcutEnabled)
+        }
+    }
+
+    var pokeHotkeyShortcut: HotkeyShortcut? {
+        get {
+            if let data = defaults.data(forKey: Keys.pokeHotkeyShortcut),
+               let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+            {
+                return shortcut
+            }
+            return nil
+        }
+        set {
+            objectWillChange.send()
+            guard let newValue else {
+                self.defaults.removeObject(forKey: Keys.pokeHotkeyShortcut)
+                return
+            }
+            if let data = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(data, forKey: Keys.pokeHotkeyShortcut)
+            }
+        }
+    }
+
     var cancelRecordingHotkeyShortcut: HotkeyShortcut {
         get {
             if let data = defaults.data(forKey: Keys.cancelRecordingHotkeyShortcut),
@@ -4780,6 +4812,10 @@ private extension SettingsStore {
         static let pasteLastTranscriptionShortcutEnabled = "PasteLastTranscriptionShortcutEnabled"
         static let commandModeLinkedToGlobal = "CommandModeLinkedToGlobal"
         static let commandModeShortcutEnabled = "CommandModeShortcutEnabled"
+
+        // Poke Mode Keys (send dictation to the Poke API)
+        static let pokeHotkeyShortcut = "PokeHotkeyShortcut"
+        static let pokeShortcutEnabled = "PokeShortcutEnabled"
 
         // Prompt Mode Keys (Transcribe with Prompt)
         static let promptModeHotkeyShortcut = "PromptModeHotkeyShortcut"

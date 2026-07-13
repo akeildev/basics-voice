@@ -103,6 +103,7 @@ enum ShortcutRecordingTarget: Hashable {
     case secondaryDictation
     case command
     case edit
+    case poke
     case cancel
     case pasteLast
     case dictationPrompt(String)
@@ -118,6 +119,8 @@ enum ShortcutRecordingTarget: Hashable {
             return "Command Mode"
         case .edit:
             return "Edit Mode"
+        case .poke:
+            return "Send to Poke"
         case .cancel:
             return "Cancel Recording"
         case .pasteLast:
@@ -131,7 +134,7 @@ enum ShortcutRecordingTarget: Hashable {
 
     var enablesFeatureOnAssignment: Bool {
         switch self {
-        case .secondaryDictation, .command, .edit, .pasteLast:
+        case .secondaryDictation, .command, .edit, .poke, .pasteLast:
             return true
         case .primaryDictation, .cancel, .dictationPrompt, .newPrompt:
             return false
@@ -147,7 +150,7 @@ enum ShortcutRecordingTarget: Hashable {
         switch self {
         case .primaryDictation, .pasteLast:
             return true
-        case .secondaryDictation, .command, .edit, .cancel, .dictationPrompt, .newPrompt:
+        case .secondaryDictation, .command, .edit, .poke, .cancel, .dictationPrompt, .newPrompt:
             return false
         }
     }
@@ -181,6 +184,7 @@ struct ContentView: View {
         case promptMode
         case edit
         case command
+        case poke
     }
 
     private enum DictationOutputRoute: String {
@@ -215,12 +219,14 @@ struct ContentView: View {
     @State private var primaryDictationShortcuts: [HotkeyShortcut] = SettingsStore.shared.primaryDictationShortcuts
     @State private var promptModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.promptModeHotkeyShortcut
     @State private var commandModeHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.commandModeHotkeyShortcut
+    @State private var pokeHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.pokeHotkeyShortcut
     @State private var rewriteModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
     @State private var cancelRecordingHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.cancelRecordingHotkeyShortcut
     @State private var pasteLastTranscriptionHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut
     @State private var isPasteLastTranscriptionShortcutEnabled: Bool = SettingsStore.shared.pasteLastTranscriptionShortcutEnabled
     @State private var isPromptModeShortcutEnabled: Bool = SettingsStore.shared.promptModeShortcutEnabled
     @State private var isCommandModeShortcutEnabled: Bool = SettingsStore.shared.commandModeShortcutEnabled
+    @State private var isPokeShortcutEnabled: Bool = SettingsStore.shared.pokeShortcutEnabled
     @State private var isRewriteModeShortcutEnabled: Bool = SettingsStore.shared.rewriteModeShortcutEnabled
     @State private var isRecordingForRewrite: Bool = false // Track if current recording is for rewrite mode
     @State private var isRecordingForCommand: Bool = false // Track if current recording is for command mode
@@ -491,6 +497,13 @@ struct ContentView: View {
             .onChange(of: self.isCommandModeShortcutEnabled) { newValue in
                 self.handleCommandShortcutEnabledChange(newValue)
             }
+            .onChange(of: self.pokeHotkeyShortcut) { _, newValue in
+                SettingsStore.shared.pokeHotkeyShortcut = newValue
+                self.hotkeyManager?.updatePokeShortcut(newValue)
+            }
+            .onChange(of: self.isPokeShortcutEnabled) { newValue in
+                self.handlePokeShortcutEnabledChange(newValue)
+            }
             .onChange(of: self.isRewriteModeShortcutEnabled) { newValue in
                 self.handleRewriteShortcutEnabledChange(newValue)
             }
@@ -540,6 +553,26 @@ struct ContentView: View {
             }
 
             if self.activeRecordingMode == .command {
+                if self.asr.isRunning {
+                    Task { await self.asr.stopWithoutTranscription() }
+                }
+                self.cancelPrewarmDictationIfNeeded()
+                self.clearActiveRecordingMode()
+                self.menuBarManager.setOverlayMode(.dictation)
+            }
+        }
+    }
+
+    private func handlePokeShortcutEnabledChange(_ isEnabled: Bool) {
+        SettingsStore.shared.pokeShortcutEnabled = isEnabled
+        self.hotkeyManager?.updatePokeShortcutEnabled(isEnabled)
+
+        if !isEnabled {
+            if self.activeShortcutRecordingTarget == .poke {
+                self.clearShortcutRecordingMode()
+            }
+
+            if self.activeRecordingMode == .poke {
                 if self.asr.isRunning {
                     Task { await self.asr.stopWithoutTranscription() }
                 }
@@ -1053,6 +1086,7 @@ struct ContentView: View {
         }
         let optionalConfiguredShortcuts: [(ShortcutRecordingTarget, HotkeyShortcut?)] = [
             (.command, self.commandModeHotkeyShortcut),
+            (.poke, self.pokeHotkeyShortcut),
             (.pasteLast, self.pasteLastTranscriptionHotkeyShortcut),
         ]
 
@@ -1112,6 +1146,10 @@ struct ContentView: View {
             self.commandModeHotkeyShortcut = shortcut
             SettingsStore.shared.commandModeHotkeyShortcut = shortcut
             self.hotkeyManager?.updateCommandModeShortcut(shortcut)
+        case .poke:
+            self.pokeHotkeyShortcut = shortcut
+            SettingsStore.shared.pokeHotkeyShortcut = shortcut
+            self.hotkeyManager?.updatePokeShortcut(shortcut)
         case .edit:
             self.rewriteModeHotkeyShortcut = shortcut
             SettingsStore.shared.rewriteModeHotkeyShortcut = shortcut
@@ -1163,6 +1201,10 @@ struct ContentView: View {
             self.isCommandModeShortcutEnabled = enabled
             SettingsStore.shared.commandModeShortcutEnabled = enabled
             self.hotkeyManager?.updateCommandModeShortcutEnabled(enabled)
+        case .poke:
+            self.isPokeShortcutEnabled = enabled
+            SettingsStore.shared.pokeShortcutEnabled = enabled
+            self.hotkeyManager?.updatePokeShortcutEnabled(enabled)
         case .edit:
             self.isRewriteModeShortcutEnabled = enabled
             SettingsStore.shared.rewriteModeShortcutEnabled = enabled
@@ -1498,10 +1540,12 @@ struct ContentView: View {
             activeShortcutRecordingTarget: self.$activeShortcutRecordingTarget,
             shortcutRecordingMessage: self.$shortcutRecordingMessage,
             commandModeShortcut: self.$commandModeHotkeyShortcut,
+            pokeShortcut: self.$pokeHotkeyShortcut,
             rewriteShortcut: self.$rewriteModeHotkeyShortcut,
             cancelRecordingShortcut: self.$cancelRecordingHotkeyShortcut,
             pasteLastTranscriptionShortcut: self.$pasteLastTranscriptionHotkeyShortcut,
             commandModeShortcutEnabled: self.$isCommandModeShortcutEnabled,
+            pokeShortcutEnabled: self.$isPokeShortcutEnabled,
             rewriteShortcutEnabled: self.$isRewriteModeShortcutEnabled,
             pasteLastTranscriptionShortcutEnabled: self.$isPasteLastTranscriptionShortcutEnabled,
             hotkeyManagerInitialized: self.$hotkeyManagerInitialized,
@@ -2119,6 +2163,7 @@ struct ContentView: View {
         let modeAtStop = self.activeRecordingMode
         let wasRewriteMode = modeAtStop == .edit || self.isRecordingForRewrite
         let wasCommandMode = modeAtStop == .command || self.isRecordingForCommand
+        let wasPokeMode = modeAtStop == .poke
         let activeDictationSlot = self.currentDictationShortcutSlot(for: modeAtStop)
         let promptOverride = self.promptModeOverrideText
         let promptTest = DictationPromptTestCoordinator.shared
@@ -2128,6 +2173,7 @@ struct ContentView: View {
         let shouldHideOverlayOnStop = route == .normal &&
             !wasRewriteMode &&
             !wasCommandMode &&
+            !wasPokeMode &&
             !promptTest.isActive &&
             !shouldUseAIOnStop
         var didRequestOverlayHideOnStop = false
@@ -2237,6 +2283,13 @@ struct ContentView: View {
                     "ai_used": true,
                 ]
             )
+            return
+        }
+
+        // If this was a poke recording, send the transcript to the Poke API instead of typing
+        if wasPokeMode {
+            DebugLogger.shared.info("Sending dictation to Poke (\(transcribedText.count) chars)", source: "ContentView")
+            await self.processPokeSend(transcribedText)
             return
         }
 
@@ -3029,7 +3082,7 @@ struct ContentView: View {
         }
         self.activeRecordingMode = mode
         switch mode {
-        case .none, .dictate, .promptMode:
+        case .none, .dictate, .promptMode, .poke:
             self.isRecordingForCommand = false
             self.isRecordingForRewrite = false
         case .edit:
@@ -3103,6 +3156,25 @@ struct ContentView: View {
             self.setActiveRecordingMode(.command)
             self.menuBarManager.setOverlayMode(.command)
         }
+    }
+
+    // MARK: - Poke Mode Voice Processing
+
+    private func processPokeSend(_ text: String) async {
+        self.menuBarManager.setProcessing(true)
+        NotchOverlayManager.shared.updateTranscriptionText("Sending to Poke")
+
+        do {
+            try await PokeService.shared.send(text)
+            DebugLogger.shared.info("Poke send succeeded", source: "ContentView")
+            NotificationService.showPokeResult(success: true, detail: text)
+        } catch {
+            DebugLogger.shared.error("Poke send failed: \(error.localizedDescription)", source: "ContentView")
+            NotificationService.showPokeResult(success: false, detail: error.localizedDescription)
+        }
+
+        NotchOverlayManager.shared.updateTranscriptionText("")
+        await self.menuBarManager.finishProcessingAndHideOverlay()
     }
 
     // MARK: - Command Mode Voice Processing
@@ -3351,9 +3423,11 @@ struct ContentView: View {
             commandModeShortcut: self.commandModeHotkeyShortcut,
             rewriteModeShortcut: self.rewriteModeHotkeyShortcut,
             promptShortcutAssignments: SettingsStore.shared.dictationPromptShortcutAssignments(),
+            pokeShortcut: self.pokeHotkeyShortcut,
             promptModeShortcutEnabled: self.isPromptModeShortcutEnabled,
             commandModeShortcutEnabled: self.isCommandModeShortcutEnabled,
             rewriteModeShortcutEnabled: self.isRewriteModeShortcutEnabled,
+            pokeShortcutEnabled: self.isPokeShortcutEnabled,
             startRecordingCallback: {
                 DebugLogger.shared.debug("ContentView: startRecordingCallback invoked by hotkey", source: "ContentView")
                 self.startRecording()
@@ -3440,6 +3514,31 @@ struct ContentView: View {
                     await self.asr.start()
                 }
             },
+            pokeModeCallback: {
+                DebugLogger.shared.info("Poke mode triggered", source: "ContentView")
+                self.captureRecordingContext()
+
+                // Set flag so stopAndProcessTranscription knows to send to Poke
+                self.setActiveRecordingMode(.poke)
+
+                // Poke reuses the plain dictation overlay
+                self.menuBarManager.setOverlayMode(.dictation)
+
+                guard !self.asr.isRunning else { return }
+
+                self.advanceOverlayLifecycle()
+
+                DebugLogger.shared.info(
+                    "Starting voice recording for Poke",
+                    source: "ContentView"
+                )
+                TranscriptionSoundPlayer.shared.playStartSound()
+                Task {
+                    await self.asr.start(onCaptureStarted: {
+                        self.menuBarManager.showRecordingOverlayImmediately()
+                    })
+                }
+            },
             isDictateRecordingProvider: {
                 self.activeRecordingMode == .dictate
             },
@@ -3451,6 +3550,9 @@ struct ContentView: View {
             },
             isRewriteRecordingProvider: {
                 self.activeRecordingMode == .edit
+            },
+            isPokeRecordingProvider: {
+                self.activeRecordingMode == .poke
             },
             isShortcutCaptureActiveProvider: {
                 self.isRecordingAnyShortcutCapture
@@ -3684,7 +3786,7 @@ extension ContentView {
             return self.activeDictationShortcutSlot ?? .primary
         case .promptMode:
             return self.activeDictationShortcutSlot ?? .secondary
-        case .none, .edit, .command:
+        case .none, .edit, .command, .poke:
             return nil
         }
     }
@@ -4410,10 +4512,12 @@ private extension ContentView {
         self.primaryDictationShortcuts = SettingsStore.shared.primaryDictationShortcuts
         self.promptModeHotkeyShortcut = SettingsStore.shared.promptModeHotkeyShortcut
         self.commandModeHotkeyShortcut = SettingsStore.shared.commandModeHotkeyShortcut
+        self.pokeHotkeyShortcut = SettingsStore.shared.pokeHotkeyShortcut
         self.rewriteModeHotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
         self.cancelRecordingHotkeyShortcut = SettingsStore.shared.cancelRecordingHotkeyShortcut
         self.isPromptModeShortcutEnabled = SettingsStore.shared.promptModeShortcutEnabled
         self.isCommandModeShortcutEnabled = SettingsStore.shared.commandModeShortcutEnabled
+        self.isPokeShortcutEnabled = SettingsStore.shared.pokeShortcutEnabled
         self.isRewriteModeShortcutEnabled = SettingsStore.shared.rewriteModeShortcutEnabled
         self.playgroundUsed = SettingsStore.shared.playgroundUsed
         self.visualizerNoiseThreshold = SettingsStore.shared.visualizerNoiseThreshold
@@ -4436,6 +4540,8 @@ private extension ContentView {
         self.hotkeyManager?.updatePromptShortcutAssignments(SettingsStore.shared.dictationPromptShortcutAssignments())
         self.hotkeyManager?.updateCommandModeShortcut(self.commandModeHotkeyShortcut)
         self.hotkeyManager?.updateCommandModeShortcutEnabled(self.isCommandModeShortcutEnabled)
+        self.hotkeyManager?.updatePokeShortcut(self.pokeHotkeyShortcut)
+        self.hotkeyManager?.updatePokeShortcutEnabled(self.isPokeShortcutEnabled)
         self.hotkeyManager?.updateRewriteModeShortcut(self.rewriteModeHotkeyShortcut)
         self.hotkeyManager?.updateRewriteModeShortcutEnabled(self.isRewriteModeShortcutEnabled)
 
