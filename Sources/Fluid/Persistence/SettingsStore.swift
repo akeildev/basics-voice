@@ -2561,6 +2561,38 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    var taskShortcutEnabled: Bool {
+        get {
+            let value = self.defaults.object(forKey: Keys.taskShortcutEnabled)
+            return value as? Bool ?? false
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.taskShortcutEnabled)
+        }
+    }
+
+    var taskHotkeyShortcut: HotkeyShortcut? {
+        get {
+            if let data = defaults.data(forKey: Keys.taskHotkeyShortcut),
+               let shortcut = try? JSONDecoder().decode(HotkeyShortcut.self, from: data)
+            {
+                return shortcut
+            }
+            return nil
+        }
+        set {
+            objectWillChange.send()
+            guard let newValue else {
+                self.defaults.removeObject(forKey: Keys.taskHotkeyShortcut)
+                return
+            }
+            if let data = try? JSONEncoder().encode(newValue) {
+                self.defaults.set(data, forKey: Keys.taskHotkeyShortcut)
+            }
+        }
+    }
+
     var cancelRecordingHotkeyShortcut: HotkeyShortcut {
         get {
             if let data = defaults.data(forKey: Keys.cancelRecordingHotkeyShortcut),
@@ -4816,6 +4848,10 @@ private extension SettingsStore {
         // Poke Mode Keys (send dictation to the Poke API)
         static let pokeHotkeyShortcut = "PokeHotkeyShortcut"
         static let pokeShortcutEnabled = "PokeShortcutEnabled"
+
+        // Task Mode Keys (voice task tracker in the notch HUD)
+        static let taskHotkeyShortcut = "TaskHotkeyShortcut"
+        static let taskShortcutEnabled = "TaskShortcutEnabled"
 
         // Prompt Mode Keys (Transcribe with Prompt)
         static let promptModeHotkeyShortcut = "PromptModeHotkeyShortcut"

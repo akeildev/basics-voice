@@ -104,6 +104,7 @@ enum ShortcutRecordingTarget: Hashable {
     case command
     case edit
     case poke
+    case task
     case cancel
     case pasteLast
     case dictationPrompt(String)
@@ -121,6 +122,8 @@ enum ShortcutRecordingTarget: Hashable {
             return "Edit Mode"
         case .poke:
             return "Send to Poke"
+        case .task:
+            return "Task Tracker"
         case .cancel:
             return "Cancel Recording"
         case .pasteLast:
@@ -134,7 +137,7 @@ enum ShortcutRecordingTarget: Hashable {
 
     var enablesFeatureOnAssignment: Bool {
         switch self {
-        case .secondaryDictation, .command, .edit, .poke, .pasteLast:
+        case .secondaryDictation, .command, .edit, .poke, .task, .pasteLast:
             return true
         case .primaryDictation, .cancel, .dictationPrompt, .newPrompt:
             return false
@@ -150,7 +153,7 @@ enum ShortcutRecordingTarget: Hashable {
         switch self {
         case .primaryDictation, .pasteLast:
             return true
-        case .secondaryDictation, .command, .edit, .poke, .cancel, .dictationPrompt, .newPrompt:
+        case .secondaryDictation, .command, .edit, .poke, .task, .cancel, .dictationPrompt, .newPrompt:
             return false
         }
     }
@@ -185,6 +188,7 @@ struct ContentView: View {
         case edit
         case command
         case poke
+        case task
     }
 
     private enum DictationOutputRoute: String {
@@ -220,6 +224,7 @@ struct ContentView: View {
     @State private var promptModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.promptModeHotkeyShortcut
     @State private var commandModeHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.commandModeHotkeyShortcut
     @State private var pokeHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.pokeHotkeyShortcut
+    @State private var taskHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.taskHotkeyShortcut
     @State private var rewriteModeHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
     @State private var cancelRecordingHotkeyShortcut: HotkeyShortcut = SettingsStore.shared.cancelRecordingHotkeyShortcut
     @State private var pasteLastTranscriptionHotkeyShortcut: HotkeyShortcut? = SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut
@@ -227,6 +232,7 @@ struct ContentView: View {
     @State private var isPromptModeShortcutEnabled: Bool = SettingsStore.shared.promptModeShortcutEnabled
     @State private var isCommandModeShortcutEnabled: Bool = SettingsStore.shared.commandModeShortcutEnabled
     @State private var isPokeShortcutEnabled: Bool = SettingsStore.shared.pokeShortcutEnabled
+    @State private var isTaskShortcutEnabled: Bool = SettingsStore.shared.taskShortcutEnabled
     @State private var isRewriteModeShortcutEnabled: Bool = SettingsStore.shared.rewriteModeShortcutEnabled
     @State private var isRecordingForRewrite: Bool = false // Track if current recording is for rewrite mode
     @State private var isRecordingForCommand: Bool = false // Track if current recording is for command mode
@@ -504,6 +510,13 @@ struct ContentView: View {
             .onChange(of: self.isPokeShortcutEnabled) { newValue in
                 self.handlePokeShortcutEnabledChange(newValue)
             }
+            .onChange(of: self.taskHotkeyShortcut) { _, newValue in
+                SettingsStore.shared.taskHotkeyShortcut = newValue
+                self.hotkeyManager?.updateTaskShortcut(newValue)
+            }
+            .onChange(of: self.isTaskShortcutEnabled) { newValue in
+                self.handleTaskShortcutEnabledChange(newValue)
+            }
             .onChange(of: self.isRewriteModeShortcutEnabled) { newValue in
                 self.handleRewriteShortcutEnabledChange(newValue)
             }
@@ -573,6 +586,26 @@ struct ContentView: View {
             }
 
             if self.activeRecordingMode == .poke {
+                if self.asr.isRunning {
+                    Task { await self.asr.stopWithoutTranscription() }
+                }
+                self.cancelPrewarmDictationIfNeeded()
+                self.clearActiveRecordingMode()
+                self.menuBarManager.setOverlayMode(.dictation)
+            }
+        }
+    }
+
+    private func handleTaskShortcutEnabledChange(_ isEnabled: Bool) {
+        SettingsStore.shared.taskShortcutEnabled = isEnabled
+        self.hotkeyManager?.updateTaskShortcutEnabled(isEnabled)
+
+        if !isEnabled {
+            if self.activeShortcutRecordingTarget == .task {
+                self.clearShortcutRecordingMode()
+            }
+
+            if self.activeRecordingMode == .task {
                 if self.asr.isRunning {
                     Task { await self.asr.stopWithoutTranscription() }
                 }
@@ -1091,6 +1124,7 @@ struct ContentView: View {
         let optionalConfiguredShortcuts: [(ShortcutRecordingTarget, HotkeyShortcut?)] = [
             (.command, self.commandModeHotkeyShortcut),
             (.poke, self.pokeHotkeyShortcut),
+            (.task, self.taskHotkeyShortcut),
             (.pasteLast, self.pasteLastTranscriptionHotkeyShortcut),
         ]
 
@@ -1154,6 +1188,10 @@ struct ContentView: View {
             self.pokeHotkeyShortcut = shortcut
             SettingsStore.shared.pokeHotkeyShortcut = shortcut
             self.hotkeyManager?.updatePokeShortcut(shortcut)
+        case .task:
+            self.taskHotkeyShortcut = shortcut
+            SettingsStore.shared.taskHotkeyShortcut = shortcut
+            self.hotkeyManager?.updateTaskShortcut(shortcut)
         case .edit:
             self.rewriteModeHotkeyShortcut = shortcut
             SettingsStore.shared.rewriteModeHotkeyShortcut = shortcut
@@ -1209,6 +1247,10 @@ struct ContentView: View {
             self.isPokeShortcutEnabled = enabled
             SettingsStore.shared.pokeShortcutEnabled = enabled
             self.hotkeyManager?.updatePokeShortcutEnabled(enabled)
+        case .task:
+            self.isTaskShortcutEnabled = enabled
+            SettingsStore.shared.taskShortcutEnabled = enabled
+            self.hotkeyManager?.updateTaskShortcutEnabled(enabled)
         case .edit:
             self.isRewriteModeShortcutEnabled = enabled
             SettingsStore.shared.rewriteModeShortcutEnabled = enabled
@@ -1545,11 +1587,13 @@ struct ContentView: View {
             shortcutRecordingMessage: self.$shortcutRecordingMessage,
             commandModeShortcut: self.$commandModeHotkeyShortcut,
             pokeShortcut: self.$pokeHotkeyShortcut,
+            taskShortcut: self.$taskHotkeyShortcut,
             rewriteShortcut: self.$rewriteModeHotkeyShortcut,
             cancelRecordingShortcut: self.$cancelRecordingHotkeyShortcut,
             pasteLastTranscriptionShortcut: self.$pasteLastTranscriptionHotkeyShortcut,
             commandModeShortcutEnabled: self.$isCommandModeShortcutEnabled,
             pokeShortcutEnabled: self.$isPokeShortcutEnabled,
+            taskShortcutEnabled: self.$isTaskShortcutEnabled,
             rewriteShortcutEnabled: self.$isRewriteModeShortcutEnabled,
             pasteLastTranscriptionShortcutEnabled: self.$isPasteLastTranscriptionShortcutEnabled,
             hotkeyManagerInitialized: self.$hotkeyManagerInitialized,
@@ -2168,6 +2212,7 @@ struct ContentView: View {
         let wasRewriteMode = modeAtStop == .edit || self.isRecordingForRewrite
         let wasCommandMode = modeAtStop == .command || self.isRecordingForCommand
         let wasPokeMode = modeAtStop == .poke
+        let wasTaskMode = modeAtStop == .task
         let activeDictationSlot = self.currentDictationShortcutSlot(for: modeAtStop)
         let promptOverride = self.promptModeOverrideText
         let promptTest = DictationPromptTestCoordinator.shared
@@ -2178,6 +2223,7 @@ struct ContentView: View {
             !wasRewriteMode &&
             !wasCommandMode &&
             !wasPokeMode &&
+            !wasTaskMode &&
             !promptTest.isActive &&
             !shouldUseAIOnStop
         var didRequestOverlayHideOnStop = false
@@ -2287,6 +2333,13 @@ struct ContentView: View {
                     "ai_used": true,
                 ]
             )
+            return
+        }
+
+        // If this was a task recording, interpret it as task commands for the notch HUD
+        if wasTaskMode {
+            DebugLogger.shared.info("Processing task command: '\(transcribedText)'", source: "ContentView")
+            await self.processTaskCommand(transcribedText)
             return
         }
 
@@ -3086,7 +3139,7 @@ struct ContentView: View {
         }
         self.activeRecordingMode = mode
         switch mode {
-        case .none, .dictate, .promptMode, .poke:
+        case .none, .dictate, .promptMode, .poke, .task:
             self.isRecordingForCommand = false
             self.isRecordingForRewrite = false
         case .edit:
@@ -3160,6 +3213,50 @@ struct ContentView: View {
             self.setActiveRecordingMode(.command)
             self.menuBarManager.setOverlayMode(.command)
         }
+    }
+
+    // MARK: - Task Mode Voice Processing
+
+    /// Spoken command → Codex-via-Conduit interpretation → TasksStore ops.
+    /// Falls back to the deterministic parser when the gateway is offline.
+    private func processTaskCommand(_ transcript: String) async {
+        self.menuBarManager.setProcessing(true)
+        NotchOverlayManager.shared.updateTranscriptionText("Updating tasks")
+
+        let store = TasksStore.shared
+        var ops: [TaskOp]?
+        var failureDetail: String?
+
+        do {
+            ops = try await ConduitTaskClient.shared.interpret(
+                transcript: transcript,
+                tasksContextJSON: store.promptContextJSON()
+            )
+        } catch ConduitTaskClientError.gatewayOffline {
+            DebugLogger.shared.warning("Task gateway offline - trying fallback parser", source: "ContentView")
+            ops = TaskCommandFallbackParser.parse(transcript)
+            if ops == nil {
+                failureDetail = ConduitTaskClientError.gatewayOffline.localizedDescription
+            }
+        } catch {
+            failureDetail = error.localizedDescription
+        }
+
+        if let ops {
+            let result = store.apply(ops)
+            DebugLogger.shared.info(
+                "Task ops applied=\(result.appliedCount) summary=\(result.summaryLine)",
+                source: "ContentView"
+            )
+            NotificationService.showTaskResult(success: result.appliedCount > 0, detail: result.summaryLine)
+        } else {
+            let detail = failureDetail ?? "Could not interpret the command"
+            DebugLogger.shared.error("Task command failed: \(detail)", source: "ContentView")
+            NotificationService.showTaskResult(success: false, detail: detail)
+        }
+
+        NotchOverlayManager.shared.updateTranscriptionText("")
+        await self.menuBarManager.finishProcessingAndHideOverlay()
     }
 
     // MARK: - Poke Mode Voice Processing
@@ -3428,10 +3525,12 @@ struct ContentView: View {
             rewriteModeShortcut: self.rewriteModeHotkeyShortcut,
             promptShortcutAssignments: SettingsStore.shared.dictationPromptShortcutAssignments(),
             pokeShortcut: self.pokeHotkeyShortcut,
+            taskShortcut: self.taskHotkeyShortcut,
             promptModeShortcutEnabled: self.isPromptModeShortcutEnabled,
             commandModeShortcutEnabled: self.isCommandModeShortcutEnabled,
             rewriteModeShortcutEnabled: self.isRewriteModeShortcutEnabled,
             pokeShortcutEnabled: self.isPokeShortcutEnabled,
+            taskShortcutEnabled: self.isTaskShortcutEnabled,
             startRecordingCallback: {
                 DebugLogger.shared.debug("ContentView: startRecordingCallback invoked by hotkey", source: "ContentView")
                 self.startRecording()
@@ -3543,6 +3642,28 @@ struct ContentView: View {
                     })
                 }
             },
+            taskModeCallback: {
+                DebugLogger.shared.info("Task mode triggered", source: "ContentView")
+                self.captureRecordingContext()
+
+                // Set flag so stopAndProcessTranscription routes to the task interpreter
+                self.setActiveRecordingMode(.task)
+
+                // Task mode reuses the plain dictation overlay
+                self.menuBarManager.setOverlayMode(.dictation)
+
+                guard !self.asr.isRunning else { return }
+
+                self.advanceOverlayLifecycle()
+
+                DebugLogger.shared.info("Starting voice recording for task command", source: "ContentView")
+                TranscriptionSoundPlayer.shared.playStartSound()
+                Task {
+                    await self.asr.start(onCaptureStarted: {
+                        self.menuBarManager.showRecordingOverlayImmediately()
+                    })
+                }
+            },
             isDictateRecordingProvider: {
                 self.activeRecordingMode == .dictate
             },
@@ -3557,6 +3678,9 @@ struct ContentView: View {
             },
             isPokeRecordingProvider: {
                 self.activeRecordingMode == .poke
+            },
+            isTaskRecordingProvider: {
+                self.activeRecordingMode == .task
             },
             isShortcutCaptureActiveProvider: {
                 self.isRecordingAnyShortcutCapture
@@ -3790,7 +3914,7 @@ extension ContentView {
             return self.activeDictationShortcutSlot ?? .primary
         case .promptMode:
             return self.activeDictationShortcutSlot ?? .secondary
-        case .none, .edit, .command, .poke:
+        case .none, .edit, .command, .poke, .task:
             return nil
         }
     }
@@ -4517,11 +4641,13 @@ private extension ContentView {
         self.promptModeHotkeyShortcut = SettingsStore.shared.promptModeHotkeyShortcut
         self.commandModeHotkeyShortcut = SettingsStore.shared.commandModeHotkeyShortcut
         self.pokeHotkeyShortcut = SettingsStore.shared.pokeHotkeyShortcut
+        self.taskHotkeyShortcut = SettingsStore.shared.taskHotkeyShortcut
         self.rewriteModeHotkeyShortcut = SettingsStore.shared.rewriteModeHotkeyShortcut
         self.cancelRecordingHotkeyShortcut = SettingsStore.shared.cancelRecordingHotkeyShortcut
         self.isPromptModeShortcutEnabled = SettingsStore.shared.promptModeShortcutEnabled
         self.isCommandModeShortcutEnabled = SettingsStore.shared.commandModeShortcutEnabled
         self.isPokeShortcutEnabled = SettingsStore.shared.pokeShortcutEnabled
+        self.isTaskShortcutEnabled = SettingsStore.shared.taskShortcutEnabled
         self.isRewriteModeShortcutEnabled = SettingsStore.shared.rewriteModeShortcutEnabled
         self.playgroundUsed = SettingsStore.shared.playgroundUsed
         self.visualizerNoiseThreshold = SettingsStore.shared.visualizerNoiseThreshold
@@ -4546,6 +4672,8 @@ private extension ContentView {
         self.hotkeyManager?.updateCommandModeShortcutEnabled(self.isCommandModeShortcutEnabled)
         self.hotkeyManager?.updatePokeShortcut(self.pokeHotkeyShortcut)
         self.hotkeyManager?.updatePokeShortcutEnabled(self.isPokeShortcutEnabled)
+        self.hotkeyManager?.updateTaskShortcut(self.taskHotkeyShortcut)
+        self.hotkeyManager?.updateTaskShortcutEnabled(self.isTaskShortcutEnabled)
         self.hotkeyManager?.updateRewriteModeShortcut(self.rewriteModeHotkeyShortcut)
         self.hotkeyManager?.updateRewriteModeShortcutEnabled(self.isRewriteModeShortcutEnabled)
 

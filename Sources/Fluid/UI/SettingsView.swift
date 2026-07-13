@@ -39,11 +39,13 @@ struct SettingsView: View {
     @Binding var shortcutRecordingMessage: String?
     @Binding var commandModeShortcut: HotkeyShortcut?
     @Binding var pokeShortcut: HotkeyShortcut?
+    @Binding var taskShortcut: HotkeyShortcut?
     @Binding var rewriteShortcut: HotkeyShortcut
     @Binding var cancelRecordingShortcut: HotkeyShortcut
     @Binding var pasteLastTranscriptionShortcut: HotkeyShortcut?
     @Binding var commandModeShortcutEnabled: Bool
     @Binding var pokeShortcutEnabled: Bool
+    @Binding var taskShortcutEnabled: Bool
     @Binding var rewriteShortcutEnabled: Bool
     @Binding var pasteLastTranscriptionShortcutEnabled: Bool
     @Binding var hotkeyManagerInitialized: Bool
@@ -749,6 +751,35 @@ struct SettingsView: View {
                                             }
                                             self.pokeShortcut = nil
                                             self.pokeShortcutEnabled = false
+                                        }
+                                    )
+                                    Divider().opacity(0.2).padding(.vertical, 4)
+
+                                    self.shortcutRow(
+                                        content: .init(
+                                            icon: "checklist",
+                                            iconColor: .secondary,
+                                            title: "Task Tracker",
+                                            description: "Speak task commands for the notch HUD (start / done / add)"
+                                        ),
+                                        shortcut: self.taskShortcut,
+                                        isRecording: self.isRecording(.task),
+                                        isAnyRecordingActive: self.isRecordingAnyShortcut,
+                                        recordingMessage: self.isRecording(.task) ? self.shortcutRecordingMessage : nil,
+                                        isEnabled: self.$taskShortcutEnabled,
+                                        requiresShortcutToEnable: true,
+                                        onChangePressed: {
+                                            DebugLogger.shared.debug("Starting to record new task shortcut", source: "SettingsView")
+                                            self.shortcutRecordingMessage = nil
+                                            self.activeShortcutRecordingTarget = .task
+                                        },
+                                        onRemovePressed: {
+                                            if self.activeShortcutRecordingTarget == .task {
+                                                self.shortcutRecordingMessage = nil
+                                                self.activeShortcutRecordingTarget = nil
+                                            }
+                                            self.taskShortcut = nil
+                                            self.taskShortcutEnabled = false
                                         }
                                     )
                                     Divider().opacity(0.2).padding(.vertical, 4)

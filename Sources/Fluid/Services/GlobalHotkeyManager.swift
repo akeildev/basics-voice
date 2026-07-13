@@ -8,6 +8,7 @@ private nonisolated enum HotkeyHoldModeType: Hashable {
     case rewriteMode
     case promptAssignment
     case pokeMode
+    case taskMode
 }
 
 private nonisolated enum ActivePrimaryShortcutPress: Equatable {
@@ -23,6 +24,7 @@ private final nonisolated class HotkeyState: @unchecked Sendable {
     var isRewriteKeyPressed = false
     var isPromptAssignmentKeyPressed = false
     var isPokeModeKeyPressed = false
+    var isTaskModeKeyPressed = false
     var pressedModifierKeyCodes: Set<UInt16> = []
     var modifierOnlyKeyDown = false
     var activeModifierOnlyType: HotkeyHoldModeType?
@@ -55,10 +57,12 @@ final class GlobalHotkeyManager: NSObject {
     private var rewriteModeShortcut: HotkeyShortcut
     private var promptShortcutAssignments: [(selection: SettingsStore.DictationPromptSelection, shortcut: HotkeyShortcut)]
     private var pokeShortcut: HotkeyShortcut?
+    private var taskShortcut: HotkeyShortcut?
     private var promptModeShortcutEnabled: Bool
     private var commandModeShortcutEnabled: Bool
     private var rewriteModeShortcutEnabled: Bool
     private var pokeShortcutEnabled: Bool
+    private var taskShortcutEnabled: Bool
     private var startRecordingCallback: (() async -> Void)?
     private var dictationModeCallback: (() async -> Void)?
     private var stopAndProcessCallback: (() async -> Void)?
@@ -67,11 +71,13 @@ final class GlobalHotkeyManager: NSObject {
     private var commandModeCallback: (() async -> Void)?
     private var rewriteModeCallback: (() async -> Void)?
     private var pokeModeCallback: (() async -> Void)?
+    private var taskModeCallback: (() async -> Void)?
     private var isDictateRecordingProvider: (() -> Bool)?
     private var isPromptModeRecordingProvider: (() -> Bool)?
     private var isCommandRecordingProvider: (() -> Bool)?
     private var isRewriteRecordingProvider: (() -> Bool)?
     private var isPokeRecordingProvider: (() -> Bool)?
+    private var isTaskRecordingProvider: (() -> Bool)?
     private var isShortcutCaptureActiveProvider: (() -> Bool)?
     private var cancelCallback: (() -> Bool)? // Returns true if handled
     private var pasteLastTranscriptionCallback: (() -> Void)?
@@ -126,6 +132,11 @@ final class GlobalHotkeyManager: NSObject {
     private nonisolated var isPokeModeKeyPressed: Bool {
         get { self.state.withLock { self.state.isPokeModeKeyPressed } }
         set { self.state.withLock { self.state.isPokeModeKeyPressed = newValue } }
+    }
+
+    private nonisolated var isTaskModeKeyPressed: Bool {
+        get { self.state.withLock { self.state.isTaskModeKeyPressed } }
+        set { self.state.withLock { self.state.isTaskModeKeyPressed = newValue } }
     }
 
     private nonisolated var activePrimaryShortcutPress: ActivePrimaryShortcutPress? {
@@ -287,10 +298,12 @@ final class GlobalHotkeyManager: NSObject {
         rewriteModeShortcut: HotkeyShortcut,
         promptShortcutAssignments: [(selection: SettingsStore.DictationPromptSelection, shortcut: HotkeyShortcut)] = [],
         pokeShortcut: HotkeyShortcut? = nil,
+        taskShortcut: HotkeyShortcut? = nil,
         promptModeShortcutEnabled: Bool,
         commandModeShortcutEnabled: Bool,
         rewriteModeShortcutEnabled: Bool,
         pokeShortcutEnabled: Bool = false,
+        taskShortcutEnabled: Bool = false,
         startRecordingCallback: (() async -> Void)? = nil,
         dictationModeCallback: (() async -> Void)? = nil,
         stopAndProcessCallback: (() async -> Void)? = nil,
@@ -299,11 +312,13 @@ final class GlobalHotkeyManager: NSObject {
         commandModeCallback: (() async -> Void)? = nil,
         rewriteModeCallback: (() async -> Void)? = nil,
         pokeModeCallback: (() async -> Void)? = nil,
+        taskModeCallback: (() async -> Void)? = nil,
         isDictateRecordingProvider: (() -> Bool)? = nil,
         isPromptModeRecordingProvider: (() -> Bool)? = nil,
         isCommandRecordingProvider: (() -> Bool)? = nil,
         isRewriteRecordingProvider: (() -> Bool)? = nil,
         isPokeRecordingProvider: (() -> Bool)? = nil,
+        isTaskRecordingProvider: (() -> Bool)? = nil,
         isShortcutCaptureActiveProvider: (() -> Bool)? = nil
     ) {
         self.asrService = asrService
@@ -313,10 +328,12 @@ final class GlobalHotkeyManager: NSObject {
         self.rewriteModeShortcut = rewriteModeShortcut
         self.promptShortcutAssignments = promptShortcutAssignments
         self.pokeShortcut = pokeShortcut
+        self.taskShortcut = taskShortcut
         self.promptModeShortcutEnabled = promptModeShortcutEnabled
         self.commandModeShortcutEnabled = commandModeShortcutEnabled
         self.rewriteModeShortcutEnabled = rewriteModeShortcutEnabled
         self.pokeShortcutEnabled = pokeShortcutEnabled
+        self.taskShortcutEnabled = taskShortcutEnabled
         self.startRecordingCallback = startRecordingCallback
         self.dictationModeCallback = dictationModeCallback
         self.stopAndProcessCallback = stopAndProcessCallback
@@ -325,11 +342,13 @@ final class GlobalHotkeyManager: NSObject {
         self.commandModeCallback = commandModeCallback
         self.rewriteModeCallback = rewriteModeCallback
         self.pokeModeCallback = pokeModeCallback
+        self.taskModeCallback = taskModeCallback
         self.isDictateRecordingProvider = isDictateRecordingProvider
         self.isPromptModeRecordingProvider = isPromptModeRecordingProvider
         self.isCommandRecordingProvider = isCommandRecordingProvider
         self.isRewriteRecordingProvider = isRewriteRecordingProvider
         self.isPokeRecordingProvider = isPokeRecordingProvider
+        self.isTaskRecordingProvider = isTaskRecordingProvider
         self.isShortcutCaptureActiveProvider = isShortcutCaptureActiveProvider
         super.init()
 
@@ -402,6 +421,26 @@ final class GlobalHotkeyManager: NSObject {
         }
         DebugLogger.shared.info(
             "Poke mode shortcut \(enabled ? "enabled" : "disabled")",
+            source: "GlobalHotkeyManager"
+        )
+    }
+
+    func setTaskModeCallback(_ callback: @escaping () async -> Void) {
+        self.taskModeCallback = callback
+    }
+
+    func updateTaskShortcut(_ newShortcut: HotkeyShortcut?) {
+        self.taskShortcut = newShortcut
+        DebugLogger.shared.info("Updated task mode hotkey", source: "GlobalHotkeyManager")
+    }
+
+    func updateTaskShortcutEnabled(_ enabled: Bool) {
+        self.taskShortcutEnabled = enabled
+        if !enabled {
+            self.isTaskModeKeyPressed = false
+        }
+        DebugLogger.shared.info(
+            "Task mode shortcut \(enabled ? "enabled" : "disabled")",
             source: "GlobalHotkeyManager"
         )
     }
@@ -846,6 +885,57 @@ final class GlobalHotkeyManager: NSObject {
                 return nil
             }
 
+            // Check task mode hotkey (voice task tracker)
+            if self.taskShortcutEnabled,
+               let taskShortcut = self.taskShortcut,
+               taskShortcut.matches(keyCode: keyCode, modifiers: eventModifiers)
+            {
+                switch self.hotkeyMode {
+                case .hold:
+                    if !self.isTaskModeKeyPressed {
+                        self.cancelPendingReleaseStop(for: .taskMode)
+                        self.clearHoldModeStartTriggered(for: .taskMode)
+                        self.isTaskModeKeyPressed = true
+                        DebugLogger.shared.info("Task mode shortcut pressed (hold mode) - starting", source: "GlobalHotkeyManager")
+                        self.triggerTaskMode()
+                        self.markHoldModeStartTriggered(for: .taskMode)
+                    }
+                case .automatic:
+                    if !self.isTaskModeKeyPressed {
+                        self.isTaskModeKeyPressed = true
+                        let isSameMode = self.asrService.isRunning && (self.isTaskRecordingProvider?() ?? false)
+                        self.beginAutomaticPress(for: .taskMode, wasTargetActive: isSameMode)
+                        if self.asrService.isRunning {
+                            if isSameMode {
+                                DebugLogger.shared.info("Task mode shortcut pressed (automatic, same mode) - waiting for release", source: "GlobalHotkeyManager")
+                            } else {
+                                DebugLogger.shared.info("Task mode shortcut pressed (automatic, switch mode)", source: "GlobalHotkeyManager")
+                                self.triggerTaskMode()
+                                self.markAutomaticPressStarted(for: .taskMode)
+                            }
+                        } else {
+                            DebugLogger.shared.info("Task mode shortcut triggered (automatic) - starting", source: "GlobalHotkeyManager")
+                            self.triggerTaskMode()
+                            self.markAutomaticPressStarted(for: .taskMode)
+                        }
+                    }
+                case .toggle:
+                    if self.asrService.isRunning {
+                        if self.isTaskRecordingProvider?() ?? false {
+                            DebugLogger.shared.info("Task mode shortcut pressed in Task mode - stopping", source: "GlobalHotkeyManager")
+                            self.stopRecordingIfNeeded()
+                        } else {
+                            DebugLogger.shared.info("Task mode shortcut pressed while recording - switching mode", source: "GlobalHotkeyManager")
+                            self.triggerTaskMode()
+                        }
+                    } else {
+                        DebugLogger.shared.info("Task mode shortcut triggered - starting", source: "GlobalHotkeyManager")
+                        self.triggerTaskMode()
+                    }
+                }
+                return nil
+            }
+
             // Check dedicated rewrite mode hotkey
             if self.rewriteModeShortcutEnabled {
                 if self.rewriteModeShortcut.matches(keyCode: keyCode, modifiers: eventModifiers) {
@@ -947,6 +1037,28 @@ final class GlobalHotkeyManager: NSObject {
                 case .automatic:
                     self.isPokeModeKeyPressed = false
                     self.handleAutomaticKeyRelease(for: .pokeMode, label: "Poke mode")
+                case .toggle:
+                    break
+                }
+                return nil
+            }
+
+            // Task mode key up
+            // Note: Only check keyCode, not modifiers - user may release modifier before/with main key
+            if self.taskShortcutEnabled,
+               self.isTaskModeKeyPressed,
+               let taskShortcut = self.taskShortcut,
+               keyCode == taskShortcut.keyCode
+            {
+                switch self.hotkeyMode {
+                case .hold:
+                    self.isTaskModeKeyPressed = false
+                    _ = self.finishHoldModeStartTriggered(for: .taskMode)
+                    DebugLogger.shared.info("Task mode shortcut released (hold mode) - stopping", source: "GlobalHotkeyManager")
+                    self.stopRecordingAfterRelease(for: .taskMode, label: "Task mode")
+                case .automatic:
+                    self.isTaskModeKeyPressed = false
+                    self.handleAutomaticKeyRelease(for: .taskMode, label: "Task mode")
                 case .toggle:
                     break
                 }
@@ -1090,6 +1202,39 @@ final class GlobalHotkeyManager: NSObject {
                            }
                        },
                        isTargetModeActive: { self.isPokeRecordingProvider?() ?? false }
+                   ),
+                   keyCode: keyCode,
+                   modifiers: eventModifiers
+               )
+            { return nil }
+
+            if let taskShortcut = self.taskShortcut,
+               self.handleModifierOnlyShortcutFlagsChanged(
+                   behavior: .init(
+                       shortcut: taskShortcut,
+                       isEnabled: self.taskShortcutEnabled,
+                       holdModeType: .taskMode,
+                       holdStartMessage: "Task mode modifier held (hold mode) - starting",
+                       holdReleaseMessage: "Task mode modifier released (hold mode) - stopping",
+                       toggleIgnoredMessage: "Task mode modifier released but another key was pressed - ignoring",
+                       isModeKeyPressed: { self.isTaskModeKeyPressed },
+                       setModeKeyPressed: { self.isTaskModeKeyPressed = $0 },
+                       onHoldStart: { self.triggerTaskMode() },
+                       onToggleRelease: {
+                           if self.asrService.isRunning {
+                               if self.isTaskRecordingProvider?() ?? false {
+                                   DebugLogger.shared.info("Task mode modifier released (toggle, same mode) - stopping", source: "GlobalHotkeyManager")
+                                   self.stopRecordingIfNeeded()
+                               } else {
+                                   DebugLogger.shared.info("Task mode modifier released (toggle, switch mode) - switching", source: "GlobalHotkeyManager")
+                                   self.triggerTaskMode()
+                               }
+                           } else {
+                               DebugLogger.shared.info("Task mode modifier released (toggle) - starting", source: "GlobalHotkeyManager")
+                               self.triggerTaskMode()
+                           }
+                       },
+                       isTargetModeActive: { self.isTaskRecordingProvider?() ?? false }
                    ),
                    keyCode: keyCode,
                    modifiers: eventModifiers
@@ -1351,6 +1496,9 @@ final class GlobalHotkeyManager: NSObject {
         case .pokeMode:
             guard let provider = self.isPokeRecordingProvider else { return true }
             return provider()
+        case .taskMode:
+            guard let provider = self.isTaskRecordingProvider else { return true }
+            return provider()
         }
     }
 
@@ -1413,6 +1561,8 @@ final class GlobalHotkeyManager: NSObject {
             return "Prompt shortcut"
         case .pokeMode:
             return "Poke mode"
+        case .taskMode:
+            return "Task mode"
         }
     }
 
@@ -1484,7 +1634,7 @@ final class GlobalHotkeyManager: NSObject {
     func resetModifierOnlyShortcutTracking(reason: ModifierTrackingResetReason = .shortcutCapture) {
         let shouldStopActiveHold = self.hotkeyMode != .toggle
             && self.asrService.isRunning
-            && (self.isKeyPressed || self.isPromptModeKeyPressed || self.isCommandModeKeyPressed || self.isRewriteKeyPressed || self.isPromptAssignmentKeyPressed || self.isPokeModeKeyPressed)
+            && (self.isKeyPressed || self.isPromptModeKeyPressed || self.isCommandModeKeyPressed || self.isRewriteKeyPressed || self.isPromptAssignmentKeyPressed || self.isPokeModeKeyPressed || self.isTaskModeKeyPressed)
 
         self.pressedModifierKeyCodes = []
         self.modifierOnlyKeyDown = false
@@ -1498,6 +1648,7 @@ final class GlobalHotkeyManager: NSObject {
         self.isRewriteKeyPressed = false
         self.isPromptAssignmentKeyPressed = false
         self.isPokeModeKeyPressed = false
+        self.isTaskModeKeyPressed = false
         self.activePrimaryShortcutPress = nil
 
         if shouldStopActiveHold {
@@ -1788,6 +1939,15 @@ final class GlobalHotkeyManager: NSObject {
         }
     }
 
+    private func triggerTaskMode() {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            guard self.canTriggerRecordingAction("Task mode hotkey") else { return }
+            DebugLogger.shared.info("Task mode hotkey triggered", source: "GlobalHotkeyManager")
+            await self.taskModeCallback?()
+        }
+    }
+
     private func triggerRewriteMode() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
@@ -1893,7 +2053,7 @@ final class GlobalHotkeyManager: NSObject {
     func setHotkeyMode(_ mode: HotkeyActivationMode) {
         let shouldStopActivePress = self.hotkeyMode != .toggle
             && self.asrService.isRunning
-            && (self.isKeyPressed || self.isPromptModeKeyPressed || self.isCommandModeKeyPressed || self.isRewriteKeyPressed || self.isPromptAssignmentKeyPressed || self.isPokeModeKeyPressed)
+            && (self.isKeyPressed || self.isPromptModeKeyPressed || self.isCommandModeKeyPressed || self.isRewriteKeyPressed || self.isPromptAssignmentKeyPressed || self.isPokeModeKeyPressed || self.isTaskModeKeyPressed)
 
         self.hotkeyMode = mode
         self.clearAutomaticPressTracking()
@@ -1903,6 +2063,7 @@ final class GlobalHotkeyManager: NSObject {
         self.isRewriteKeyPressed = false
         self.isPromptAssignmentKeyPressed = false
         self.isPokeModeKeyPressed = false
+        self.isTaskModeKeyPressed = false
         self.activePrimaryShortcutPress = nil
 
         if shouldStopActivePress {
