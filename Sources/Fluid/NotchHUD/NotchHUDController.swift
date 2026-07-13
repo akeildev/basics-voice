@@ -20,7 +20,8 @@ final class NotchHUDController {
     /// own state-machine guards).
     private var suppressionGeneration = 0
 
-    private static let panelSize = CGSize(width: 640, height: 210)
+    /// Tall enough for the largest adaptive expanded size (5 rows + overflow).
+    private static let panelSize = CGSize(width: 640, height: 320)
 
     init() {
         Self.active = self
@@ -168,10 +169,14 @@ final class NotchHUDController {
 
     /// AppKit-side hit test against the HUD's current visual bounds (global,
     /// bottom-left-origin coordinates). Ground truth for expand/collapse.
+    /// Uses the same geometry functions as the view so they can never drift.
     private func mouseInsideVisualBounds(expanded: Bool) -> Bool {
         guard let panelFrame = self.panel?.frame else { return false }
         let size: CGSize = expanded
-            ? NotchHUDRootView.openSize
+            ? NotchHUDRootView.expandedSize(
+                closedHeight: self.state.closedSize.height,
+                upcomingCount: TasksStore.shared.upcomingTasks.count
+            )
             : CGSize(
                 width: NotchHUDRootView.collapsedWidth(closedSize: self.state.closedSize),
                 height: self.state.closedSize.height
