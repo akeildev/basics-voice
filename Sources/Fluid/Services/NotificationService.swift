@@ -9,6 +9,7 @@ enum NotificationService {
     enum Kind {
         static let aiProcessingFallback = "aiProcessingFallback"
         static let commandModeFailure = "commandModeFailure"
+        static let pokeResult = "pokeResult"
     }
 
     static func showAIProcessingFallback(error: String) {
@@ -67,6 +68,60 @@ enum NotificationService {
                 )
             @unknown default:
                 break
+            }
+        }
+    }
+
+    /// Shown after a "Send to Poke" dictation completes — success confirmation or the failure reason.
+    /// Not gated on notifyAIProcessingFailures: the send is invisible otherwise, so the user
+    /// always deserves confirmation that their message actually left the machine.
+    static func showPokeResult(success: Bool, detail: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                self.deliverPokeResult(success: success, detail: detail, using: center)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, requestError in
+                    if let requestError {
+                        DebugLogger.shared.warning(
+                            "Notification permission request failed: \(requestError.localizedDescription)",
+                            source: "NotificationService"
+                        )
+                    }
+                    guard granted else { return }
+                    self.deliverPokeResult(success: success, detail: detail, using: center)
+                }
+            case .denied:
+                DebugLogger.shared.debug(
+                    "Skipping Poke notification because notification permission is denied",
+                    source: "NotificationService"
+                )
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private static func deliverPokeResult(success: Bool, detail: String, using center: UNUserNotificationCenter) {
+        let content = UNMutableNotificationContent()
+        content.title = success ? "Sent to Poke ✓" : "Poke send failed"
+        content.body = detail
+        content.sound = nil
+        content.userInfo = [UserInfoKey.kind: Kind.pokeResult]
+
+        let request = UNNotificationRequest(
+            identifier: "poke-result-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+
+        center.add(request) { addError in
+            if let addError {
+                DebugLogger.shared.warning(
+                    "Failed to show Poke notification: \(addError.localizedDescription)",
+                    source: "NotificationService"
+                )
             }
         }
     }
