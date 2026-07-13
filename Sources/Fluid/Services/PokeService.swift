@@ -6,6 +6,7 @@ enum PokeServiceError: Error, LocalizedError {
     case invalidResponse
     case httpError(Int, String)
     case network(String)
+    case messagesSendFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -17,19 +18,30 @@ enum PokeServiceError: Error, LocalizedError {
             return "Poke request failed (HTTP \(status)): \(body)"
         case let .network(message):
             return message
+        case let .messagesSendFailed(message):
+            return "Could not send via Messages: \(message)"
         }
     }
 }
 
-/// Sends dictated transcripts to the Poke API (https://poke.com/api/v1/inbound/api-message).
-/// The API key is read from the app Keychain (provider ID "poke"), falling back to the
-/// user-level generic password item with service "poke-api" (as created via the
-/// `security add-generic-password -s poke-api` CLI) and migrating it into the app store.
+/// Sends dictated transcripts to Poke.
+///
+/// Preferred transport: an iMessage into the user's real Poke conversation via Messages.app
+/// (Apple Messages for Business chat), configured through the `PokeIMessageChatID` default —
+/// a Messages chat id like "any;-;urn:biz:<uuid>". This lands the message in the same thread
+/// the user already reads, and Poke's replies come back there.
+///
+/// Fallback transport: the Poke inbound API (https://poke.com/api/v1/inbound/api-message).
+/// Caveat: API messages go to whichever Poke ACCOUNT owns the API key, which is not
+/// necessarily the account behind the user's iMessage thread. The API key is read from the
+/// app Keychain (provider ID "poke"), falling back to the user-level generic password item
+/// with service "poke-api" (as created via `security add-generic-password -s poke-api`).
 @MainActor
 final class PokeService {
     static let shared = PokeService()
 
     static let keychainProviderID = "poke"
+    static let iMessageChatIDDefaultsKey = "PokeIMessageChatID"
     private static let cliKeychainService = "poke-api"
     private static let endpoint = URL(string: "https://poke.com/api/v1/inbound/api-message")!
 
@@ -49,6 +61,15 @@ final class PokeService {
     func send(_ text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+
+        // Preferred: send into the user's real Poke iMessage thread.
+        if let chatID = UserDefaults.standard.string(forKey: Self.iMessageChatIDDefaultsKey),
+           !chatID.isEmpty
+        {
+            try self.sendViaMessages(trimmed, chatID: chatID)
+            DebugLogger.shared.info("Sent \(trimmed.count) chars to Poke via iMessage", source: "PokeService")
+            return
+        }
 
         guard let apiKey = self.resolveAPIKey() else {
             throw PokeServiceError.missingAPIKey
@@ -84,6 +105,29 @@ final class PokeService {
         }
 
         DebugLogger.shared.info("Sent \(trimmed.count) chars to Poke", source: "PokeService")
+    }
+
+    // MARK: - iMessage transport
+
+    private func sendViaMessages(_ text: String, chatID: String) throws {
+        let escapedText = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedChatID = chatID
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let source = "tell application \"Messages\" to send \"\(escapedText)\" to chat id \"\(escapedChatID)\""
+
+        guard let script = NSAppleScript(source: source) else {
+            throw PokeServiceError.messagesSendFailed("Could not build the Messages script.")
+        }
+
+        var errorInfo: NSDictionary?
+        script.executeAndReturnError(&errorInfo)
+        if let errorInfo {
+            let message = errorInfo[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
+            throw PokeServiceError.messagesSendFailed(message)
+        }
     }
 
     // MARK: - API key resolution
