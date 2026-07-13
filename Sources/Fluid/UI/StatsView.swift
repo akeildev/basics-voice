@@ -249,6 +249,7 @@ struct StatsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(self.formatNumber(self.historyStore.totalWords))
                     .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(.primary)
 
                 let today = self.historyStore.wordsToday

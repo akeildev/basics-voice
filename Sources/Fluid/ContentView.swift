@@ -4701,6 +4701,8 @@ private struct TodayStatsToolbarButton: View {
                 }
             }
             .font(.system(size: 12, weight: .medium))
+            // Live counters: tabular digits so the pill doesn't shift width as numbers tick up.
+            .monospacedDigit()
         }
         .help(hasActivity ? "Today: \(summary.words) words · \(timeSaved) saved - view stats" : "View your stats")
         .accessibilityLabel("Today stats")

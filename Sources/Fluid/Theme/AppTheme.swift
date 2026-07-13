@@ -91,10 +91,12 @@ struct AppTheme {
             let lg: CGFloat
             let pill: CGFloat
 
+            // Concentric rule: outer radius = inner radius + padding.
+            // Cards (lg) typically nest md-radius rows with ~10pt padding.
             static let standard = CornerRadius(
                 sm: 6,
                 md: 10,
-                lg: 16,
+                lg: 20,
                 pill: 999
             )
         }
@@ -294,7 +296,7 @@ struct AppTheme {
                 elevatedCardBackground: Color(nsColor: .windowBackgroundColor),
                 toolbarBackground: Color(nsColor: .windowBackgroundColor),
 
-                cardBorder: Color.black.opacity(0.12),
+                cardBorder: Color.black.opacity(0.08),
                 separator: Color(nsColor: .separatorColor),
                 primaryText: Color(nsColor: .labelColor),
                 secondaryText: Color(nsColor: .secondaryLabelColor),
@@ -337,8 +339,10 @@ struct AppTheme {
                 elevatedCardBackground: Color(red: 0.11, green: 0.11, blue: 0.11),
                 toolbarBackground: Color(red: 0.06, green: 0.06, blue: 0.06),
 
-                cardBorder: Color.white.opacity(0.10),
-                separator: Color.white.opacity(0.16),
+                // Soft edges: depth comes from the layered card shadows, not hard
+                // borders — borders are hairlines that define, not divide.
+                cardBorder: Color.white.opacity(0.07),
+                separator: Color.white.opacity(0.10),
                 primaryText: Color(nsColor: .labelColor),
                 secondaryText: Color(nsColor: .secondaryLabelColor),
                 tertiaryText: Color(nsColor: .tertiaryLabelColor),

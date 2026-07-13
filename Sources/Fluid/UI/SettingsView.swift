@@ -109,12 +109,15 @@ struct SettingsView: View {
         Color(nsColor: .labelColor)
     }
 
+    // Three clear text levels (title → description → footnote). Each step
+    // drops brightness noticeably so the hierarchy reads at a glance instead
+    // of three near-identical grays competing for attention.
     private var settingsSecondaryText: Color {
-        self.colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.90) : self.theme.palette.primaryText.opacity(0.82)
+        self.colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.72) : self.theme.palette.primaryText.opacity(0.62)
     }
 
     private var settingsTertiaryText: Color {
-        self.colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.85) : self.theme.palette.secondaryText
+        self.colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.55) : self.theme.palette.primaryText.opacity(0.42)
     }
 
     private func isRecording(_ target: ShortcutRecordingTarget) -> Bool {
@@ -256,7 +259,7 @@ struct SettingsView: View {
                                 errorMessage: self.settings.launchAtStartupErrorMessage,
                                 isOn: self.launchAtStartupBinding
                             )
-                            Divider().opacity(0.2)
+                            Divider().opacity(0.1)
 
                             // Show window when launched at login
                             self.settingsToggleRow(
@@ -267,7 +270,7 @@ struct SettingsView: View {
                                     set: { SettingsStore.shared.showMainWindowAtLoginLaunch = $0 }
                                 )
                             )
-                            Divider().opacity(0.2)
+                            Divider().opacity(0.1)
 
                             // Hide from Dock & App Switcher
                             self.settingsToggleRow(
@@ -279,7 +282,7 @@ struct SettingsView: View {
                                     set: { SettingsStore.shared.hideFromDockAndAppSwitcher = $0 }
                                 )
                             )
-                            Divider().opacity(0.2)
+                            Divider().opacity(0.1)
 
                             // Accent Color
                             VStack(alignment: .leading, spacing: 6) {
@@ -330,7 +333,7 @@ struct SettingsView: View {
                                     )
                                 }
                             }
-                            Divider().opacity(0.2)
+                            Divider().opacity(0.1)
 
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -400,7 +403,7 @@ struct SettingsView: View {
                                 )
                             }
 
-                            Divider().opacity(0.2)
+                            Divider().opacity(0.1)
 
                             // Automatic Updates
                             VStack(alignment: .leading, spacing: 6) {
@@ -718,7 +721,7 @@ struct SettingsView: View {
 
                                     self.primaryDictationShortcutsList()
                                     self.dictationPromptPicker(for: .primary)
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -747,7 +750,7 @@ struct SettingsView: View {
                                             self.commandModeShortcutEnabled = false
                                         }
                                     )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -776,7 +779,7 @@ struct SettingsView: View {
                                             self.pokeShortcutEnabled = false
                                         }
                                     )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -805,7 +808,7 @@ struct SettingsView: View {
                                             self.taskShortcutEnabled = false
                                         }
                                     )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -825,7 +828,7 @@ struct SettingsView: View {
                                             self.activeShortcutRecordingTarget = .edit
                                         }
                                     )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -844,7 +847,7 @@ struct SettingsView: View {
                                             self.activeShortcutRecordingTarget = .cancel
                                         }
                                     )
-                                    Divider().opacity(0.2).padding(.vertical, 4)
+                                    Divider().opacity(0.1).padding(.vertical, 4)
 
                                     self.shortcutRow(
                                         content: .init(
@@ -911,7 +914,7 @@ struct SettingsView: View {
                                         SettingsStore.shared.hotkeyMode = newValue
                                         self.hotkeyManager?.setHotkeyMode(newValue)
                                     }
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Copy to Clipboard",
@@ -921,7 +924,7 @@ struct SettingsView: View {
                                     .onChange(of: self.copyToClipboard) { _, newValue in
                                         SettingsStore.shared.copyTranscriptionToClipboard = newValue
                                     }
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     HStack(alignment: .center) {
                                         VStack(alignment: .leading, spacing: 2) {
@@ -946,7 +949,7 @@ struct SettingsView: View {
                                         .pickerStyle(.menu)
                                         .frame(width: 170, alignment: .trailing)
                                     }
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Save Transcription History",
@@ -959,7 +962,7 @@ struct SettingsView: View {
                                             }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Save Audio With History",
@@ -979,9 +982,9 @@ struct SettingsView: View {
                                     {
                                         self.audioHistoryControls()
                                             .padding(.top, 2)
-                                        Divider().opacity(0.2)
+                                        Divider().opacity(0.1)
                                     } else {
-                                        Divider().opacity(0.2)
+                                        Divider().opacity(0.1)
                                     }
 
                                     self.optionToggleRow(
@@ -992,7 +995,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.notifyAIProcessingFailures = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Weekends Don't Break Streak",
@@ -1002,7 +1005,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.weekendsDontBreakStreak = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Lowercase First Letter",
@@ -1012,7 +1015,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.gaavLowercaseFirstLetterEnabled = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Remove Trailing Period",
@@ -1022,7 +1025,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.gaavRemoveTrailingPeriodEnabled = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Slash Commands & @ Formatting",
@@ -1044,7 +1047,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.continuousDictationSpacingEnabled = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Smart Capitalization",
@@ -1054,7 +1057,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.contextAwareCapitalizationEnabled = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Skip Silent Recordings",
@@ -1075,7 +1078,7 @@ struct SettingsView: View {
                                             set: { SettingsStore.shared.pauseMediaDuringTranscription = $0 }
                                         )
                                     )
-                                    Divider().opacity(0.2)
+                                    Divider().opacity(0.1)
 
                                     self.optionToggleRow(
                                         title: "Share Anonymous Analytics",
@@ -1937,8 +1940,8 @@ struct SettingsView: View {
 
             if let footnote = footnote {
                 Text(footnote)
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(self.settingsSecondaryText)
+                    .font(self.theme.typography.caption)
+                    .foregroundStyle(self.settingsTertiaryText)
             }
 
             if let errorMessage = errorMessage {
@@ -2022,7 +2025,7 @@ struct SettingsView: View {
                 }
             }
 
-            Divider().opacity(0.2)
+            Divider().opacity(0.1)
 
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
