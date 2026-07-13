@@ -18,8 +18,10 @@ final class NotchHUDState: ObservableObject {
 /// live before switching to polling).
 struct NotchHUDRootView: View {
     @ObservedObject var state: NotchHUDState
+    @ObservedObject var tasks: TasksStore = .shared
 
     static let openSize = CGSize(width: 420, height: 180)
+    private static let maxUpcomingShown = 5
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,21 +68,28 @@ struct NotchHUDRootView: View {
         closedSize.width + 140
     }
 
-    // MARK: - Spike content (Unit 1 only — replaced by TaskListWidget in Unit 3)
+    // MARK: - Task content
 
     /// Collapsed: the notch footprint plus a right "wing" for the current task.
     private var collapsedWidth: CGFloat {
         Self.collapsedWidth(closedSize: self.state.closedSize)
     }
 
+    private var collapsedTitle: String {
+        self.tasks.currentTask?.title
+            ?? self.tasks.upcomingTasks.first.map { "Next: \($0.title)" }
+            ?? "No task"
+    }
+
     private var collapsedContent: some View {
         HStack(spacing: 0) {
             // Left wing spacer + the physical notch footprint stay empty (black).
             Spacer(minLength: self.state.closedSize.width)
-            Text("Current: spike task")
+            Text(self.collapsedTitle)
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white.opacity(self.tasks.currentTask == nil ? 0.45 : 0.85))
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(width: 132, alignment: .leading)
                 .padding(.trailing, 8)
         }
@@ -88,29 +97,51 @@ struct NotchHUDRootView: View {
     }
 
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             // Keep clear of the physical notch cutout.
             Spacer(minLength: self.state.closedSize.height)
+
             Text("NOW")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
-            Text("Spike task — prove coexistence")
+                .kerning(0.8)
+            Text(self.tasks.currentTask?.title ?? "Nothing in progress")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(self.tasks.currentTask == nil ? .white.opacity(0.5) : .white)
+                .lineLimit(2)
+
             Divider().overlay(.white.opacity(0.15))
+
             Text("UP NEXT")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
-            Text("Static row one")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.8))
-            Text("Static row two")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.8))
+                .kerning(0.8)
+            if self.tasks.upcomingTasks.isEmpty {
+                Text("Nothing queued")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.4))
+            } else {
+                ForEach(self.tasks.upcomingTasks.prefix(Self.maxUpcomingShown)) { task in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(.white.opacity(0.3))
+                            .frame(width: 4, height: 4)
+                        Text(task.title)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                if self.tasks.upcomingTasks.count > Self.maxUpcomingShown {
+                    Text("+\(self.tasks.upcomingTasks.count - Self.maxUpcomingShown) more")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+            }
             Spacer(minLength: 6)
         }
         .padding(.horizontal, 20)
         .frame(width: Self.openSize.width, height: Self.openSize.height, alignment: .topLeading)
     }
-
 }
