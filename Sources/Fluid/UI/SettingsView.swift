@@ -733,8 +733,8 @@ struct SettingsView: View {
                                         content: .init(
                                             icon: "paperplane.fill",
                                             iconColor: .secondary,
-                                            title: "Send to Poke",
-                                            description: "Speak and send the transcript to Poke"
+                                            title: "Send to Instinct",
+                                            description: "Speak and send the transcript to your assistant over iMessage"
                                         ),
                                         shortcut: self.pokeShortcut,
                                         isRecording: self.isRecording(.poke),
