@@ -121,7 +121,7 @@ enum ShortcutRecordingTarget: Hashable {
         case .edit:
             return "Edit Mode"
         case .poke:
-            return "Send to Poke"
+            return "Send to Instinct"
         case .task:
             return "Task Tracker"
         case .cancel:

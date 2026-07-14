@@ -149,7 +149,7 @@ enum NotificationService {
 
     private static func deliverPokeResult(success: Bool, detail: String, using center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
-        content.title = success ? "Sent to Poke ✓" : "Poke send failed"
+        content.title = success ? "Sent to Instinct ✓" : "Instinct send failed"
         content.body = detail
         content.sound = nil
         content.userInfo = [UserInfoKey.kind: Kind.pokeResult]
