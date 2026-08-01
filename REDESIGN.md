@@ -15,20 +15,20 @@ Legend — `paper`: design exists · `code`: implemented · `proof`: seen workin
 
 | screen | ctrls | states | paper | code | proof | source |
 |---|--:|--:|:--:|:--:|:--:|---|
-| Settings | 98 | 21 | ✅ | — | — | `Sources/Fluid/UI/SettingsView.swift:242` |
-| Getting Started / Welcome to FluidVoice | 65 | 14 | ✅ | — | — | `Sources/Fluid/UI/WelcomeView.swift:12` |
-| Custom Dictionary | 52 | 15 | ✅ | — | — | `Sources/Fluid/UI/CustomDictionaryView.swift:13` |
-| Stats | 36 | 7 | ✅ | — | — | `Sources/Fluid/UI/StatsView.swift:3` |
-| Transcription History | 27 | 10 | ✅ | — | — | `Sources/Fluid/UI/TranscriptionHistoryView.swift:5` |
-| Meeting Transcription | 24 | 10 | ✅ | — | — | `Sources/Fluid/UI/MeetingTranscriptionView.swift:4` |
-| Edit Mode | 23 | 10 | ✅ | — | — | `Sources/Fluid/Views/RewriteModeView.swift:3` |
-| Command Mode | 18 | 11 | ✅ | — | — | `Sources/Fluid/Views/CommandModeView.swift:3` |
-| Voice Engine | 15 | 6 | ✅ | — | — | `Sources/Fluid/UI/AISettingsView+SpeechRecognition.swift:13` |
-| Send Feedback | 11 | 6 | ✅ | — | — | `Sources/Fluid/UI/FeedbackView.swift:12` |
-| Change logs | 8 | 5 | ✅ | — | — | `Sources/Fluid/UI/ChangelogView.swift:3` |
+| Settings | 98 | 21 | ✅ | ✅ | ✅ 12-preferences.png | `Sources/Fluid/UI/SettingsView.swift:242` |
+| Getting Started / Welcome to FluidVoice | 65 | 14 | ✅ | ✅ | ✅ 01-home.png | `Sources/Fluid/UI/WelcomeView.swift:12` |
+| Custom Dictionary | 52 | 15 | ✅ | ✅ | ⚠️ 08-dictionary.png | `Sources/Fluid/UI/CustomDictionaryView.swift:13` |
+| Stats | 36 | 7 | ✅ | ✅ | ✅ 11-stats.png | `Sources/Fluid/UI/StatsView.swift:3` |
+| Transcription History | 27 | 10 | ✅ | ✅ | ✅ 10-history.png | `Sources/Fluid/UI/TranscriptionHistoryView.swift:5` |
+| Meeting Transcription | 24 | 10 | ✅ | ✅ | ✅ 09-meeting-transcription.png | `Sources/Fluid/UI/MeetingTranscriptionView.swift:4` |
+| Edit Mode | 23 | 10 | ✅ | ✅ | ⚠️ 05-rewrite-mode.png | `Sources/Fluid/Views/RewriteModeView.swift:3` |
+| Command Mode | 18 | 11 | ✅ | ✅ | ⚠️ 04-command-mode.png | `Sources/Fluid/Views/CommandModeView.swift:3` |
+| Voice Engine | 15 | 6 | ✅ | ✅ | ✅ 02-voice-engine.png | `Sources/Fluid/UI/AISettingsView+SpeechRecognition.swift:13` |
+| Send Feedback | 11 | 6 | ✅ | ✅ | ✅ 14-feedback.png | `Sources/Fluid/UI/FeedbackView.swift:12` |
+| Change logs | 8 | 5 | ✅ | ✅ | ✅ 13-changelog.png | `Sources/Fluid/UI/ChangelogView.swift:3` |
 | FluidVoice | 7 | 5 | — | — | — | `Sources/Fluid/ContentView.swift:324` |
 | Voice Dictation | 4 | 5 | — | — | — | `Sources/Fluid/UI/RecordingView.swift:11` |
-| AI Enhancement | 4 | 4 | ✅ | — | — | `Sources/Fluid/UI/AISettingsView+AIConfiguration.swift:49` |
+| AI Enhancement | 4 | 4 | ✅ | ✅ | ✅ 03-ai-enhancements.png | `Sources/Fluid/UI/AISettingsView+AIConfiguration.swift:49` |
 | FluidVoice (main window shell created from the menu  | 3 | 4 | — | — | — | `Sources/Fluid/Services/MenuBarManager.swift:957` |
 
 ## overlay  (9)
@@ -139,7 +139,7 @@ Legend — `paper`: design exists · `code`: implemented · `proof`: seen workin
 | Speech model row | 18 | 8 | — | — | — | `Sources/Fluid/UI/AISettingsView+SpeechRecognition.swift:308` |
 | Button & control style catalogue | 17 | 4 | — | — | — | `Sources/Fluid/Theme/NativeButtonStyles.swift:16` |
 | Provider details (expanded API provider) | 16 | 7 | — | — | — | `Sources/Fluid/UI/AISettingsView+AIConfiguration.swift:1319` |
-| Sidebar | 15 | 3 | — | — | — | `Sources/Fluid/ContentView.swift:1254` |
+| Sidebar | 15 | 3 | — | ✅ | ✅ 01-home.png | `Sources/Fluid/ContentView.swift:1254` |
 | App theme tokens | 15 | 3 | — | — | — | `Sources/Fluid/Theme/AppTheme.swift:5` |
 | Dictation shortcut try-out card | 14 | 6 | — | — | — | `Sources/Fluid/UI/OnboardingTryoutStepView.swift:3` |
 | Edit Mode — How to use | 13 | 3 | ✅ | — | — | `Sources/Fluid/Views/RewriteModeView.swift:353` |
@@ -225,3 +225,57 @@ Legend — `paper`: design exists · `code`: implemented · `proof`: seen workin
 | SettingsPersistentScrollView | — | — | — | `Sources/Fluid/UI/SettingsView.swift:2486` |
 | File dialogs (NSSavePanel / NSOpenPanel) for dictionary  | — | — | — | `Sources/Fluid/UI/SettingsView.swift:1680` |
 | ContentView.themePreferenceButton | — | — | — | `Sources/Fluid/ContentView.swift:1311` |
+
+
+## Proof pass 2 — 2026-08-01, build v1.6.6 (installed 15:26)
+
+Deploy: `BASICS_SIGN_ID="Apple Development: Akeil Smith (CTDVGH5TCT)" scripts/deploy-basics-voice.sh`
+→ `==> Done. Installed "Basics Voice" (v1.6.6) to /Applications.` New Basics green "1" Dock icon
+confirmed (`00-dock.png`). Screenshots live in the proof-pass scratchpad `proofs2/`.
+
+All 14 sidebar destinations were navigated via System Events and captured from the running app.
+
+| page | verdict | evidence |
+|---|---|---|
+| Home | PASS | `01-home.png`, `01-home-s1.png` |
+| Voice engine | PASS | `02-voice-engine.png`, `-s1`, `-s2` |
+| AI enhancements | PASS | `03-ai-enhancements.png` |
+| Command mode | FAIL — window forced to 1360×2760 | `04-command-mode.png` |
+| Rewrite mode | FAIL — window forced to 1360×2837 | `05-rewrite-mode.png` |
+| Send to Instinct | PASS | `06-send-to-instinct.png` |
+| Tasks | PASS | `07-tasks.png` |
+| Dictionary | FAIL — hardcoded "FluidVoice" in visible copy | `08-dictionary.png` |
+| Meeting transcription | PASS | `09-meeting-transcription.png` |
+| History | PASS | `10-history.png` |
+| Stats | PASS | `11-stats.png`, `-s1`, `-s2` |
+| Preferences | PASS | `12-preferences.png`, `-s1`..`-s3` |
+| Changelog | PASS | `13-changelog.png` |
+| Feedback | PASS | `14-feedback.png` |
+
+Open defects found by this pass:
+
+1. **Command mode / Rewrite mode force the window to ~2760–2837 pt tall.** Reproduced 4/4;
+   `AXSize` writes back to 1030 are rejected while either page is selected. On a 1080p display
+   the composer, provider warning banner and model pickers sit below the screen edge.
+2. **`Sources/Fluid/UI/CustomDictionaryView.swift` still ships 21 hardcoded "FluidVoice"
+   strings**, two visible on the default Dictionary page ("teach FluidVoice its first
+   correction", "Words and phrases FluidVoice corrects automatically"). Contract requires the
+   shipped name. Same literal also appears in `AIEnhancementSettingsViewModel.swift` (6),
+   `WelcomeView.swift` (4), `TasksSettingsView.swift` (2),
+   `AISettingsView+SpeechRecognition.swift` (2), `SettingsView.swift` (1). Upstream references
+   in `FeedbackView.swift` / `ChangelogView.swift` are correct and intentional.
+3. **Title Case leaks** in the Rewrite/Command composer pickers ("Select Provider",
+   "Select model" — inconsistent with each other and with sentence case elsewhere).
+
+Notes on method. Captures were taken with `screencapture -x -o -l<winid>`, which records the
+window layer whether or not it is occluded. On the 15:26 build that renders the sidebar's selected
+row as a saturated teal — a vibrancy artifact of the layer capture, not what is on screen (a
+direct screen-region capture showed the correct brandSoft pill). Commit `a286d74`
+("Sidebar pill owns its color") lands the pill in the layer itself, and `04`/`05`/`08` were
+re-captured against that later build (15:50) with the pill rendering correctly.
+
+Also: another session was driving the same app during this pass (live dictation, page changes,
+a mid-pass redeploy at 15:50). Navigation was therefore re-verified per page — by reading the
+detail-pane title over the accessibility API where available, and by `AXPress` on the sidebar
+row's button rather than by setting outline-row selection, which silently no-ops on the modes
+pages.
