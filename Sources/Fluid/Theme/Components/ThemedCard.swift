@@ -110,13 +110,16 @@ private extension ThemedCard {
         init(style: ThemedCardStyle, theme: AppTheme, colorScheme: ColorScheme) {
             let ink = BasicsTokens.Ink.foreground
             let brand = BasicsTokens.Semantic.brand
-            let strong = BasicsBorder.strong(theme, colorScheme)
+            _ = brand // kept for the prominent shadow tint below
 
             // Board: standard rest `0 1px 2px` + `0 8px 24px` at ink 4%;
             // hover `0 2px 3px` at 5% + `0 14px 34px` at 8%.
+            // Tone + shadow carry the card now — strokes are gone (Akeil:
+            // white-on-white, and no lines everywhere). Slightly stronger key
+            // shadow, tuned for the deeper #EEF1EF ground.
             let restShadows = [
-                BasicsShadow(color: ink.opacity(0.04), radius: 1, y: 1),
-                BasicsShadow(color: ink.opacity(0.04), radius: 12, y: 8),
+                BasicsShadow(color: ink.opacity(0.05), radius: 1, y: 1),
+                BasicsShadow(color: ink.opacity(0.07), radius: 14, y: 8),
             ]
             let raisedShadows = [
                 BasicsShadow(color: ink.opacity(0.05), radius: 1.5, y: 2),
@@ -126,8 +129,8 @@ private extension ThemedCard {
             switch style {
             case .standard:
                 self.background = theme.palette.cardBackground
-                self.border = theme.palette.cardBorder
-                self.hoverBorder = strong
+                self.border = .clear
+                self.hoverBorder = .clear
                 self.cornerRadius = BasicsTokens.Radius.lg
                 self.insets = EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20)
                 self.shadows = restShadows
@@ -135,8 +138,8 @@ private extension ThemedCard {
 
             case .prominent:
                 self.background = theme.palette.elevatedCardBackground
-                self.border = brand.opacity(0.40)
-                self.hoverBorder = brand.opacity(0.55)
+                self.border = .clear
+                self.hoverBorder = .clear
                 self.cornerRadius = BasicsTokens.Radius.lg
                 self.insets = EdgeInsets(top: 18, leading: 20, bottom: 18, trailing: 20)
                 self.shadows = [
@@ -152,8 +155,8 @@ private extension ThemedCard {
                 // An inset well on the muted ground. No shadow — it sits *into*
                 // the surface, it does not rise off it.
                 self.background = theme.palette.sidebarBackground
-                self.border = theme.palette.cardBorder
-                self.hoverBorder = strong
+                self.border = .clear
+                self.hoverBorder = .clear
                 self.cornerRadius = BasicsTokens.Radius.md
                 self.insets = EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
                 self.shadows = []

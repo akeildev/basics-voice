@@ -319,7 +319,9 @@ struct AppTheme {
         AppTheme(
             palette: Palette(
                 windowBackground: BasicsTokens.Surface.bg,
-                contentBackground: BasicsTokens.Surface.card,
+                // Pages sit on the toned ground; only CARDS are white. This is
+                // what makes cards stand out without borders.
+                contentBackground: BasicsTokens.Surface.bg,
                 sidebarBackground: BasicsTokens.Surface.sidebar,
                 cardBackground: BasicsTokens.Surface.card,
                 elevatedCardBackground: BasicsTokens.Surface.card,

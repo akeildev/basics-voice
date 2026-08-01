@@ -17,17 +17,28 @@ enum BasicsTokens {
     // MARK: - Surfaces
 
     enum Surface {
-        /// App ground — snow, faintly spruce-tinted.
-        static let bg = Color(hex: "#F9FAF9")!
-        /// Raised surface / detail pane.
+        /// App ground — snow, a full step below the cards so white reads as
+        /// raised. Contrast in this app comes from TONE + SHADOW, not lines
+        /// (Akeil: cards were white-on-white and the app leaned on hairlines).
+        static let bg = Color(hex: "#EEF1EF")!
+        /// Raised surface. Pure white against the deeper ground.
         static let card = Color.white
-        /// Sidebar ground, and the fill for inset wells.
-        static let sidebar = Color(hex: "#F1F4F2")!
-        static let muted = Color(hex: "#F1F4F2")!
-        /// The 1px hairline that does most of the separating in this app.
-        static let border = Color(hex: "#E0E4E1")!
-        /// Control outlines and field borders — one step stronger than a hairline.
-        static let borderStrong = Color(hex: "#CDD3CF")!
+        /// Sidebar ground — one step deeper again.
+        static let sidebar = Color(hex: "#E8ECEA")!
+        /// Inset wells on white cards.
+        static let muted = Color(hex: "#EAEEEB")!
+        /// Hairlines are a whisper now — tone does the separating. Kept only
+        /// where two same-tone regions genuinely touch.
+        static let border = Color.black.opacity(0.05)
+        /// Control outlines (fields, segmented) — still quiet.
+        static let borderStrong = Color.black.opacity(0.10)
+    }
+
+    /// The card shadow pair — soft and diffuse, never a hard drop. Ambient +
+    /// key, tuned for the #EEF1EF ground.
+    enum Elevation {
+        static let cardAmbient = Color.black.opacity(0.05)
+        static let cardKey = Color.black.opacity(0.08)
     }
 
     // MARK: - Text
