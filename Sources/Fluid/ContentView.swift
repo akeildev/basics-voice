@@ -1318,12 +1318,23 @@ struct ContentView: View {
     }
 
     private func sidebarNavigationLink(_ item: SidebarItem, title: String, systemImage: String) -> some View {
-        NavigationLink(value: item) {
+        // Board § sidebar: the selected row is a brand-soft pill with brand ink.
+        // AppKit's own selection highlight follows the SYSTEM accent colour, not
+        // the app tint, so the selection is drawn here instead — the row
+        // background replaces the system pill and stays Basics green on any Mac.
+        let isSelected = self.selectedSidebarItem == item
+        return NavigationLink(value: item) {
             Label(title, systemImage: systemImage)
                 .font(self.theme.typography.sidebarItem)
+                .foregroundStyle(isSelected ? self.theme.palette.accent : self.theme.palette.primaryText)
                 .frame(minHeight: 24, alignment: .leading)
                 .padding(.vertical, self.theme.metrics.spacing.xs / 2)
         }
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(isSelected ? BasicsTokens.Semantic.brandSoft : Color.clear)
+                .padding(.horizontal, 2)
+        )
     }
 
     private var themePreferenceButton: some View {
