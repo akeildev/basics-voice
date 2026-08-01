@@ -74,7 +74,6 @@ struct HomeView: View {
     let startRecording: () -> Void
     let openAccessibilitySettings: () -> Void
 
-    @State private var frontmostAppName: String?
     @State private var searchText = ""
     @State private var copiedEntryID: UUID?
     @State private var isCommandGuideExpanded = false
@@ -108,7 +107,6 @@ struct HomeView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
-                    self.dictateHeadline
                     self.statStrip
                     self.quickSetup(proxy: proxy)
                     self.recentSection
@@ -122,67 +120,14 @@ struct HomeView: View {
             }
         }
         .background(self.theme.palette.contentBackground)
-        .onAppear { self.updateFrontmostApp() }
-        .onReceive(
-            NSWorkspace.shared.notificationCenter
-                .publisher(for: NSWorkspace.didActivateApplicationNotification)
-        ) { _ in
-            self.updateFrontmostApp()
-        }
         .onDisappear { self.audioPreview.stop() }
     }
 
-    // MARK: - Headline
-
+    /// Still used by the playground's empty-state copy, which tells you which
+    /// key to hold. The page no longer opens with a dictate headline — it
+    /// starts straight into content.
     private var primaryShortcutDisplay: String {
         self.settings.primaryDictationShortcutDisplayString
-    }
-
-    private var dictateHeadline: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Text("Hold")
-                .basicsLabel(26)
-                .foregroundStyle(self.theme.palette.primaryText)
-
-            Text(self.primaryShortcutDisplay)
-                .basicsMono(16, weight: .medium)
-                .foregroundStyle(self.theme.palette.accent)
-                .padding(.horizontal, 16)
-                .frame(height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(BasicsTokens.Semantic.brandSoft)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(self.theme.palette.accent.opacity(0.22), lineWidth: 1)
-                        )
-                )
-
-            if let appName = self.frontmostAppName {
-                Text("to dictate in")
-                    .basicsLabel(26)
-                    .foregroundStyle(self.theme.palette.primaryText)
-                Text(appName)
-                    .basicsLabel(26)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                    .lineLimit(1)
-            } else {
-                Text("to dictate anywhere")
-                    .basicsLabel(26)
-                    .foregroundStyle(self.theme.palette.primaryText)
-            }
-
-            Spacer(minLength: 12)
-        }
-    }
-
-    /// The app the next dictation would type into — never this app, so the
-    /// headline keeps naming the real target while the window is in front.
-    private func updateFrontmostApp() {
-        guard let front = NSWorkspace.shared.frontmostApplication else { return }
-        guard front.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
-        guard let name = front.localizedName, !name.isEmpty else { return }
-        self.frontmostAppName = name
     }
 
     // MARK: - Stat strip
