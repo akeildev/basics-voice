@@ -180,3 +180,48 @@ Legend — `paper`: design exists · `code`: implemented · `proof`: seen workin
 - `Sources/Fluid/UI/AISettingsView+AdvancedSettings.swift:882` — UNREACHABLE — prompt mode tabs, hint row, selected-apps summary
 - `Sources/Fluid/UI/AISettingsView+AdvancedSettings.swift:1172` — UNREACHABLE — Edit-mode inline model controls
 - `Sources/Fluid/UI/AISettingsView+SpeechRecognition.swift:652` — UNREACHABLE — Voice Engine model status strip
+
+
+## found by the completeness audit (36)
+
+> Audit verdict: **INCOMPLETE — the inventory misses the entire notch-overlay UI file (Views/NotchContentViews.swift, 9 live View structs including the primary recording HUD and a full in-notch chat surface), both actual sidebar nav destinations for AI settings, three modal NSAlerts in AppDelegate, all system notification banners, the design-token layer, and the shared card/onboarding/dictionary component set a redesign must restyle.**
+> 99 View structs on disk.
+
+| surface | paper | code | proof | source |
+|---|:--:|:--:|:--:|---|
+| NotchExpandedView | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:404` |
+| NotchCommandOutputExpandedView | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:1222` |
+| NotchCompactLeadingView | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:1138` |
+| NotchCompactTrailingView | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:1160` |
+| NotchCompactBottomView | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:1173` |
+| NotchExpandedView prompt hover menu (inline) | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:585` |
+| NotchWaveformView / ExpandedModeWaveformView / CompactNo | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:998` |
+| ShimmerText / CompositorShimmerSweep | — | — | — | `Sources/Fluid/Views/NotchContentViews.swift:286` |
+| VoiceEngineSettingsScreen | — | — | — | `Sources/Fluid/UI/AISettings/AISettingsScreens.swift:3` |
+| AIEnhancementSettingsScreen | — | — | — | `Sources/Fluid/UI/AISettings/AISettingsScreens.swift:29` |
+| showMLXUpgradeOffer (NSAlert) | — | — | — | `Sources/Fluid/AppDelegate.swift:232` |
+| showUpdateNotification (NSAlert) | — | — | — | `Sources/Fluid/AppDelegate.swift:464` |
+| showUpdateAlert (NSAlert) | — | — | — | `Sources/Fluid/AppDelegate.swift:486` |
+| NotificationService system banners (task, Instinct/Poke, | — | — | — | `Sources/Fluid/Services/NotificationService.swift:128` |
+| BasicsTokens | — | — | — | `Sources/Fluid/Theme/BasicsTokens.swift:15` |
+| ThemedCard | — | — | — | `Sources/Fluid/Theme/Components/ThemedCard.swift:9` |
+| SetupStepView | — | — | — | `Sources/Fluid/Theme/Components/SetupComponents.swift:13` |
+| InstructionStep | — | — | — | `Sources/Fluid/Theme/Components/SetupComponents.swift:127` |
+| OnboardingFlowView.allLanguagesPicker | — | — | — | `Sources/Fluid/UI/WelcomeView.swift:1301` |
+| OnboardingFlowView.aiEnhancementStep | — | — | — | `Sources/Fluid/UI/WelcomeView.swift:1758` |
+| OnboardingFlowView.languageChoiceCard / otherLanguageCar | — | — | — | `Sources/Fluid/UI/WelcomeView.swift:1164` |
+| WelcomeView.commandModeGuide / editModeGuide | — | — | — | `Sources/Fluid/UI/WelcomeView.swift:454` |
+| MeetingTranscriptionView state cards (fileSelection / pr | — | — | — | `Sources/Fluid/UI/MeetingTranscriptionView.swift:128` |
+| FluidOnboardingLandingPrimaryButton | — | — | — | `Sources/Fluid/Theme/Components/OnboardingComponents.swift:238` |
+| FluidOnboardingLandingBackdrop / CompactProgress / Compa | — | — | — | `Sources/Fluid/Theme/Components/OnboardingComponents.swift:80` |
+| PromptTextView | — | — | — | `Sources/Fluid/UI/PromptTextView.swift:6` |
+| LiquidBar | — | — | — | `Sources/Fluid/UI/AISettingsComponents.swift:53` |
+| Dictionary rows and chips (BoostTermRow, DictionaryEntry | — | — | — | `Sources/Fluid/UI/CustomDictionaryView.swift:2295` |
+| CorrectionOverlayReadinessRing / ActionButton / RecordBu | — | — | — | `Sources/Fluid/Views/AutomaticDictionaryCorrectionOverlay.swift:579` |
+| SettingsView NSAlerts: Update Found, Up To Date/Check Fa | — | — | — | `Sources/Fluid/UI/SettingsView.swift:483` |
+| CommandShimmerText | — | — | — | `Sources/Fluid/Views/CommandModeView.swift:645` |
+| CommandModeView subviews (headerView, chatArea, processi | — | — | — | `Sources/Fluid/Views/CommandModeView.swift:75` |
+| ChangelogNoteBlock | — | — | — | `Sources/Fluid/UI/ChangelogView.swift:264` |
+| SettingsPersistentScrollView | — | — | — | `Sources/Fluid/UI/SettingsView.swift:2486` |
+| File dialogs (NSSavePanel / NSOpenPanel) for dictionary  | — | — | — | `Sources/Fluid/UI/SettingsView.swift:1680` |
+| ContentView.themePreferenceButton | — | — | — | `Sources/Fluid/ContentView.swift:1311` |
