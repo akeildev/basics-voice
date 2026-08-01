@@ -28,6 +28,102 @@ enum RecordingOverlayHideOutcome: Equatable {
     case superseded
 }
 
+// MARK: - Overlay dark chrome (board 17)
+
+/// Mode colours live here rather than on `OverlayMode.notchColor`, which the
+/// recording notch owns and which is out of scope for the redesign.
+private enum OverlayModePalette {
+    static func fill(for mode: OverlayMode) -> Color {
+        switch mode {
+        case .dictation: return BasicsTokens.Dark.modeDictate
+        case .edit, .write, .rewrite: return BasicsTokens.Dark.modeEdit
+        case .command: return BasicsTokens.Dark.modeCommand
+        }
+    }
+
+    /// The label colour to use on top of a 14%-tinted fill of the same hue.
+    static func ink(for mode: OverlayMode) -> Color {
+        switch mode {
+        case .dictation: return BasicsTokens.Dark.modeDictateInk
+        case .edit, .write, .rewrite: return BasicsTokens.Dark.modeEditInk
+        case .command: return BasicsTokens.Dark.modeCommandInk
+        }
+    }
+}
+
+/// The shared shell for the three chip menus: one panel spec, one row spec.
+private enum OverlayMenuChrome {
+    static let panelRadius: CGFloat = 14
+    static let rowRadius: CGFloat = 9
+    static let rowHeight: CGFloat = 34
+
+    @ViewBuilder
+    static func rowBackground(isSelected: Bool, isHovered: Bool) -> some View {
+        let fill: Color = isSelected
+            ? BasicsTokens.Dark.accentStrong
+            : (isHovered ? BasicsTokens.Dark.rowHover : Color.clear)
+        let stroke: Color = isSelected ? BasicsTokens.Dark.accentBorder : Color.clear
+
+        RoundedRectangle(cornerRadius: rowRadius, style: .continuous)
+            .fill(fill)
+            .overlay(
+                RoundedRectangle(cornerRadius: rowRadius, style: .continuous)
+                    .strokeBorder(stroke, lineWidth: 1)
+            )
+    }
+
+    /// The trailing shortcut / hint capsule on a menu row.
+    @ViewBuilder
+    static func shortcutCapsule(_ text: String, isSelected: Bool) -> some View {
+        Text(text)
+            .basicsMono(11)
+            .foregroundStyle(isSelected ? BasicsTokens.Dark.accentInk : BasicsTokens.Dark.faint)
+            .padding(.horizontal, 7)
+            .frame(height: 19)
+            .background(
+                Capsule().fill(
+                    isSelected
+                        ? BasicsTokens.Dark.accent.opacity(0.18)
+                        : Color.white.opacity(0.05)
+                )
+            )
+    }
+
+    static func divider() -> some View {
+        Rectangle()
+            .fill(BasicsTokens.Dark.hairline)
+            .frame(height: 1)
+            .padding(.vertical, 4)
+    }
+}
+
+private struct OverlayMenuPanel: ViewModifier {
+    let maxWidth: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: OverlayMenuChrome.panelRadius, style: .continuous)
+                    .fill(BasicsTokens.Dark.menu)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: OverlayMenuChrome.panelRadius, style: .continuous)
+                            .strokeBorder(BasicsTokens.Dark.border, lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.6), radius: 20, x: 0, y: 16)
+            )
+            .padding(6) // room for the shadow inside the borderless panel
+            .frame(width: self.maxWidth + 12)
+            .preferredColorScheme(.dark)
+    }
+}
+
+extension View {
+    fileprivate func overlayMenuPanel(maxWidth: CGFloat) -> some View {
+        self.modifier(OverlayMenuPanel(maxWidth: maxWidth))
+    }
+}
+
 private final class BottomOverlayPanel: NSPanel {
     var allowsOffscreenParking = false
 
@@ -1342,101 +1438,89 @@ private struct BottomOverlayModeMenuView: View {
         }
     }
 
-    private func rowBackground(isSelected: Bool, rowID: String) -> some View {
-        let isHovered = self.hoveredRowID == rowID
-        let fillColor: Color
-        if isSelected {
-            fillColor = Color.white.opacity(0.28)
-        } else if isHovered {
-            fillColor = Color.white.opacity(0.20)
-        } else {
-            fillColor = Color.clear
-        }
-
-        let strokeColor: Color
-        if isSelected {
-            strokeColor = Color.white.opacity(0.38)
-        } else if isHovered {
-            strokeColor = Color.white.opacity(0.24)
-        } else {
-            strokeColor = Color.clear
-        }
-
-        return RoundedRectangle(cornerRadius: 7)
-            .fill(fillColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(strokeColor, lineWidth: 1)
-            )
-    }
-
     @ViewBuilder
     private func modeRow(_ title: String, mode: OverlayMode, rowID: String) -> some View {
         let isSelected = self.normalizedOverlayMode == mode
+        let isHovered = self.hoveredRowID == rowID
         let shortcut = OverlayShortcutResolver.shortcutDisplay(for: mode, settings: self.settings)
+        let isInert = self.contentState.isProcessing
 
         Button(action: {
-            guard !self.contentState.isProcessing else { return }
+            guard !isInert else { return }
             self.contentState.onOverlayModeSwitchRequested?(mode)
             self.onDismissRequested()
         }) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                Spacer()
-                if !shortcut.isEmpty {
-                    Text(shortcut)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Capsule())
+            HStack(alignment: .center, spacing: 10) {
+                // Fixed lane so the three labels line up whether ticked or not.
+                ZStack {
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(BasicsTokens.Dark.accent)
+                    }
                 }
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
+                .frame(width: 14)
+
+                Text(title)
+                    .basicsLabel(13)
+                    .foregroundStyle(
+                        isSelected
+                            ? BasicsTokens.Dark.accentInk
+                            : (isHovered ? BasicsTokens.Dark.ink : BasicsTokens.Dark.inkSubtle)
+                    )
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                if !shortcut.isEmpty {
+                    OverlayMenuChrome.shortcutCapsule(shortcut, isSelected: isSelected)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: isSelected, rowID: rowID))
+            .padding(.horizontal, 10)
+            .frame(height: OverlayMenuChrome.rowHeight)
+            .background(OverlayMenuChrome.rowBackground(isSelected: isSelected, isHovered: isHovered))
         }
         .buttonStyle(.plain)
+        .disabled(isInert)
+        .opacity(isInert ? 0.45 : 1)
         .onHover { hovering in
-            self.hoveredRowID = hovering ? rowID : nil
+            self.hoveredRowID = (hovering && !isInert) ? rowID : nil
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
             self.modeRow("Dictate", mode: .dictation, rowID: "dictate")
             self.modeRow("Edit", mode: .edit, rowID: "edit")
 
-            Divider()
-                .padding(.vertical, 4)
+            OverlayMenuChrome.divider()
 
             self.modeRow("Command", mode: .command, rowID: "command")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.black)
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .frame(maxWidth: self.maxWidth)
-        .preferredColorScheme(.dark)
+        .overlayMenuPanel(maxWidth: self.maxWidth)
         .onHover { hovering in
             self.onHoverChanged(hovering)
         }
     }
 }
 
+/// The white pill that marks "this prompt comes from a per-app binding".
+private struct OverlayAppBadge: View {
+    var body: some View {
+        Text("App")
+            .basicsLabel(10)
+            .tracking(BasicsTokens.Tracking.wide(at: 10) * 0.25)
+            .foregroundStyle(BasicsTokens.Dark.ground)
+            .padding(.horizontal, 5)
+            .frame(height: 16)
+            .background(Capsule().fill(Color.white.opacity(0.9)))
+    }
+}
+
 private struct BottomOverlayPromptMenuView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var contentState = NotchContentState.shared
+    @ObservedObject private var activeAppMonitor = ActiveAppMonitor.shared
 
     let promptMode: SettingsStore.PromptMode
     let maxWidth: CGFloat
@@ -1448,39 +1532,70 @@ private struct BottomOverlayPromptMenuView: View {
         self.promptMode.normalized == .dictate && PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
     }
 
-    private func rowBackground(isSelected: Bool, rowID: String) -> some View {
+    /// One shape for every row in this menu: tick lane, label, optional trailing
+    /// badge. `trailing` carries the App-binding badge and the not-available hint.
+    @ViewBuilder
+    private func promptRow<Trailing: View>(
+        title: String,
+        rowID: String,
+        isSelected: Bool,
+        isEnabled: Bool,
+        @ViewBuilder trailing: () -> Trailing,
+        action: @escaping () -> Void
+    ) -> some View {
         let isHovered = self.hoveredRowID == rowID
-        let fillColor: Color
-        if isSelected {
-            fillColor = Color.white.opacity(0.28)
-        } else if isHovered {
-            fillColor = Color.white.opacity(0.20)
-        } else {
-            fillColor = Color.clear
-        }
 
-        let strokeColor: Color
-        if isSelected {
-            strokeColor = Color.white.opacity(0.38)
-        } else if isHovered {
-            strokeColor = Color.white.opacity(0.24)
-        } else {
-            strokeColor = Color.clear
-        }
+        Button(action: {
+            guard isEnabled else { return }
+            action()
+        }) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(BasicsTokens.Dark.accent)
+                    }
+                }
+                .frame(width: 14)
 
-        return RoundedRectangle(cornerRadius: 7)
-            .fill(fillColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(strokeColor, lineWidth: 1)
-            )
+                Text(title)
+                    .basicsLabel(13)
+                    .foregroundStyle(
+                        isSelected
+                            ? BasicsTokens.Dark.accentInk
+                            : (isHovered ? BasicsTokens.Dark.ink : BasicsTokens.Dark.inkSubtle)
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 8)
+
+                trailing()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: OverlayMenuChrome.rowHeight)
+            .background(OverlayMenuChrome.rowBackground(isSelected: isSelected, isHovered: isHovered))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+        .onHover { hovering in
+            self.hoveredRowID = (hovering && isEnabled) ? rowID : nil
+        }
     }
 
     @ViewBuilder
     private func offRow() -> some View {
         let activeSlot = self.contentState.activeDictationShortcutSlot ?? .primary
         let isSelected = self.settings.dictationPromptSelection(for: activeSlot) == .off
-        Button(action: {
+        self.promptRow(
+            title: "Off",
+            rowID: "off",
+            isSelected: isSelected,
+            isEnabled: true,
+            trailing: { EmptyView() }
+        ) {
             if self.promptMode.normalized == .dictate {
                 self.contentState.onDictationPromptSelectionRequested?(.off)
             } else {
@@ -1488,22 +1603,6 @@ private struct BottomOverlayPromptMenuView: View {
             }
             self.restoreTypingTargetApp()
             self.onDismissRequested()
-        }) {
-            HStack {
-                Text("Off")
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: isSelected, rowID: "off"))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            self.hoveredRowID = hovering ? "off" : nil
         }
     }
 
@@ -1515,8 +1614,13 @@ private struct BottomOverlayPromptMenuView: View {
                 ? (self.settings.dictationPromptSelection(for: activeSlot) == .default)
                 : (selectedID == nil)
         )
-        Button(action: {
-            guard !self.privateAILocked else { return }
+        self.promptRow(
+            title: "Default",
+            rowID: "default",
+            isSelected: isSelected,
+            isEnabled: !self.privateAILocked,
+            trailing: { EmptyView() }
+        ) {
             if self.promptMode.normalized == .dictate {
                 self.contentState.onDictationPromptSelectionRequested?(.default)
             } else {
@@ -1524,24 +1628,6 @@ private struct BottomOverlayPromptMenuView: View {
             }
             self.restoreTypingTargetApp()
             self.onDismissRequested()
-        }) {
-            HStack {
-                Text("Default")
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: isSelected, rowID: "default"))
-        }
-        .buttonStyle(.plain)
-        .disabled(self.privateAILocked)
-        .opacity(self.privateAILocked ? 0.45 : 1)
-        .onHover { hovering in
-            self.hoveredRowID = hovering && !self.privateAILocked ? "default" : nil
         }
     }
 
@@ -1550,31 +1636,24 @@ private struct BottomOverlayPromptMenuView: View {
         let activeSlot = self.contentState.activeDictationShortcutSlot ?? .primary
         let isAvailable = PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
         let isSelected = self.settings.dictationPromptSelection(for: activeSlot) == .privateAI
-        Button(action: {
-            guard isAvailable else { return }
+        self.promptRow(
+            title: PrivateAIProviderFeature.displayName,
+            rowID: PrivateAIProviderFeature.shared.providerID,
+            isSelected: isSelected,
+            isEnabled: isAvailable,
+            trailing: {
+                if !isAvailable {
+                    Text("not available")
+                        .basicsMono(11)
+                        .foregroundStyle(BasicsTokens.Dark.faint)
+                }
+            }
+        ) {
             self.contentState.onDictationPromptSelectionRequested?(.privateAI)
             self.restoreTypingTargetApp()
             self.onDismissRequested()
-        }) {
-            HStack {
-                Text(PrivateAIProviderFeature.displayName)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: isSelected, rowID: PrivateAIProviderFeature.shared.providerID))
         }
-        .buttonStyle(.plain)
-        .disabled(!isAvailable)
-        .opacity(isAvailable ? 1 : 0.45)
         .help(isAvailable ? "Use \(PrivateAIProviderFeature.displayName)" : "Select \(PrivateAIProviderFeature.displayName) to enable this prompt")
-        .onHover { hovering in
-            self.hoveredRowID = hovering && isAvailable ? PrivateAIProviderFeature.shared.providerID : nil
-        }
     }
 
     @ViewBuilder
@@ -1585,8 +1664,18 @@ private struct BottomOverlayPromptMenuView: View {
                 ? (self.settings.dictationPromptSelection(for: activeSlot) == .profile(profile.id))
                 : (selectedID == profile.id)
         )
-        Button(action: {
-            guard !self.privateAILocked else { return }
+        let isAppBound = self.isAppBoundProfile(profile, activeSlot: activeSlot)
+        self.promptRow(
+            title: profile.name.isEmpty ? "Untitled" : profile.name,
+            rowID: profile.id,
+            isSelected: isSelected,
+            isEnabled: !self.privateAILocked,
+            trailing: {
+                if isAppBound {
+                    OverlayAppBadge()
+                }
+            }
+        ) {
             if self.promptMode.normalized == .dictate {
                 self.contentState.onDictationPromptSelectionRequested?(.profile(profile.id))
             } else {
@@ -1594,37 +1683,35 @@ private struct BottomOverlayPromptMenuView: View {
             }
             self.restoreTypingTargetApp()
             self.onDismissRequested()
-        }) {
-            HStack {
-                Text(profile.name.isEmpty ? "Untitled" : profile.name)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                }
+        }
+    }
+
+    /// True when the frontmost app's prompt binding resolves to THIS profile, so
+    /// the badge in the menu matches the badge on the chip that opened it.
+    private func isAppBoundProfile(
+        _ profile: SettingsStore.DictationPromptProfile,
+        activeSlot: SettingsStore.DictationShortcutSlot
+    ) -> Bool {
+        let bundleID = self.activeAppMonitor.activeAppBundleID
+        if self.promptMode.normalized == .dictate {
+            guard self.settings.isAppDictationPromptBindingActive(for: activeSlot, appBundleID: bundleID) else {
+                return false
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: isSelected, rowID: profile.id))
+            return self.settings.resolvedDictationPromptProfile(for: activeSlot, appBundleID: bundleID)?.id == profile.id
         }
-        .buttonStyle(.plain)
-        .disabled(self.privateAILocked)
-        .opacity(self.privateAILocked ? 0.45 : 1)
-        .onHover { hovering in
-            self.hoveredRowID = hovering && !self.privateAILocked ? profile.id : nil
-        }
+        guard self.settings.hasAppPromptBinding(for: self.promptMode, appBundleID: bundleID) else { return false }
+        return self.settings.resolvedPromptProfile(for: self.promptMode, appBundleID: bundleID)?.id == profile.id
     }
 
     var body: some View {
         let selectedID = self.settings.selectedPromptID(for: self.promptMode)
         let profiles = self.settings.promptProfiles(for: self.promptMode)
 
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
             if self.promptMode.normalized == .dictate {
                 self.offRow()
 
-                Divider()
-                    .padding(.vertical, 4)
+                OverlayMenuChrome.divider()
             }
 
             if !self.privateAILocked {
@@ -1636,24 +1723,14 @@ private struct BottomOverlayPromptMenuView: View {
             }
 
             if !self.privateAILocked && !profiles.isEmpty {
-                Divider()
-                    .padding(.vertical, 4)
+                OverlayMenuChrome.divider()
 
                 ForEach(profiles) { profile in
                     self.profileRow(profile, selectedID: selectedID)
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.black)
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .frame(maxWidth: self.maxWidth)
-        .preferredColorScheme(.dark)
+        .overlayMenuPanel(maxWidth: self.maxWidth)
         .onHover { hovering in
             self.onHoverChanged(hovering)
         }
@@ -1701,34 +1778,6 @@ private struct BottomOverlayActionsMenuView: View {
         return latest.wasAIProcessed && !raw.isEmpty
     }
 
-    private func rowBackground(isSelected: Bool, rowID: String) -> some View {
-        let isHovered = self.hoveredRowID == rowID
-        let fillColor: Color
-        if isSelected {
-            fillColor = Color.white.opacity(0.28)
-        } else if isHovered {
-            fillColor = Color.white.opacity(0.20)
-        } else {
-            fillColor = Color.clear
-        }
-
-        let strokeColor: Color
-        if isSelected {
-            strokeColor = Color.white.opacity(0.38)
-        } else if isHovered {
-            strokeColor = Color.white.opacity(0.24)
-        } else {
-            strokeColor = Color.clear
-        }
-
-        return RoundedRectangle(cornerRadius: 7)
-            .fill(fillColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(strokeColor, lineWidth: 1)
-            )
-    }
-
     private func actionRow(
         title: String,
         icon: String,
@@ -1736,21 +1785,29 @@ private struct BottomOverlayActionsMenuView: View {
         enabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: {
+        let isHovered = self.hoveredRowID == rowID
+
+        return Button(action: {
             guard enabled else { return }
             action()
             self.onDismissRequested()
         }) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
+            HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(enabled ? BasicsTokens.Dark.accent : BasicsTokens.Dark.muted)
+                    .frame(width: 14)
+
+                Text(title)
+                    .basicsLabel(13)
+                    .foregroundStyle(isHovered ? BasicsTokens.Dark.ink : BasicsTokens.Dark.inkSubtle)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(self.rowBackground(isSelected: false, rowID: rowID))
+            .padding(.horizontal, 10)
+            .frame(height: OverlayMenuChrome.rowHeight)
+            .background(OverlayMenuChrome.rowBackground(isSelected: false, isHovered: isHovered))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -1765,9 +1822,9 @@ private struct BottomOverlayActionsMenuView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
             self.actionRow(
-                title: "Reprocess Last Dictation",
+                title: "Reprocess last dictation",
                 icon: "arrow.clockwise",
                 rowID: "reprocess_last",
                 enabled: self.canReprocessLast
@@ -1776,7 +1833,7 @@ private struct BottomOverlayActionsMenuView: View {
             }
 
             self.actionRow(
-                title: "Copy Last Transcription",
+                title: "Copy last transcription",
                 icon: "doc.on.doc",
                 rowID: "copy_last",
                 enabled: self.canCopyLast
@@ -1785,7 +1842,7 @@ private struct BottomOverlayActionsMenuView: View {
             }
 
             self.actionRow(
-                title: "Paste Last Transcription",
+                title: "Paste last transcription",
                 icon: "arrow.down.doc",
                 rowID: "paste_last",
                 enabled: self.canPasteLast
@@ -1793,11 +1850,10 @@ private struct BottomOverlayActionsMenuView: View {
                 self.contentState.onPasteLastRequested?()
             }
 
-            Divider()
-                .padding(.vertical, 4)
+            OverlayMenuChrome.divider()
 
             self.actionRow(
-                title: "Undo AI on Last",
+                title: "Undo AI on last",
                 icon: "arrow.uturn.backward",
                 rowID: "undo_ai_last",
                 enabled: self.canUndoLastAI
@@ -1805,16 +1861,7 @@ private struct BottomOverlayActionsMenuView: View {
                 self.contentState.onUndoLastAIRequested?()
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.black)
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
-        .frame(maxWidth: self.maxWidth)
-        .preferredColorScheme(.dark)
+        .overlayMenuPanel(maxWidth: self.maxWidth)
         .onHover { hovering in
             self.onHoverChanged(hovering)
         }
@@ -1956,7 +2003,6 @@ struct BottomOverlayView: View {
     @ObservedObject private var activeAppMonitor = ActiveAppMonitor.shared
     @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
     @ObservedObject private var settings = SettingsStore.shared
-    @Environment(\.theme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHoveringModeChip = false
     @State private var isHoveringPromptChip = false
@@ -1972,7 +2018,6 @@ struct BottomOverlayView: View {
     @State private var frozenDynamicPreviewHeight: CGFloat?
     @State private var dynamicPreviewResizeBucket: Int = 0
     @State private var processingStatusVisible = false
-    @State private var processingStatusCycleID = 0
     @State private var lastResolvedAppIcon: NSImage?
     @State private var borderAnimationStartedAt: Date?
 
@@ -1994,6 +2039,8 @@ struct BottomOverlayView: View {
         let overlayWidth: CGFloat
         let overlayHeight: CGFloat
         let previewBoxHeight: CGFloat
+        /// Vertical gap between the chip row, the waveform row and the preview.
+        let contentGap: CGFloat
         let usesFixedCanvas: Bool
         let showsTopControls: Bool
         let showsPreview: Bool
@@ -2020,6 +2067,7 @@ struct BottomOverlayView: View {
                     overlayWidth: 100,
                     overlayHeight: 46,
                     previewBoxHeight: 0,
+                    contentGap: 0,
                     usesFixedCanvas: false,
                     showsTopControls: false,
                     showsPreview: false,
@@ -2027,23 +2075,24 @@ struct BottomOverlayView: View {
                 )
             case .small:
                 return LayoutConstants(
-                    hPadding: 10,
-                    vPadding: 6,
+                    hPadding: 18,
+                    vPadding: 16,
                     waveformWidth: 90,
                     waveformHeight: 20,
                     iconSize: 16,
-                    transFontSize: 11,
-                    modeFontSize: 10,
+                    transFontSize: 13,
+                    modeFontSize: 12,
                     cornerRadius: 14,
                     barCount: 7,
                     barWidth: 3.0,
-                    barSpacing: 3.5,
+                    barSpacing: 10,
                     minBarHeight: 5,
-                    maxBarHeight: 16,
-                    containerWidth: 200,
+                    maxBarHeight: 20,
+                    containerWidth: 300,
                     overlayWidth: 300,
                     overlayHeight: 124,
                     previewBoxHeight: 0,
+                    contentGap: 14,
                     usesFixedCanvas: false,
                     showsTopControls: false,
                     showsPreview: true,
@@ -2051,8 +2100,8 @@ struct BottomOverlayView: View {
                 )
             case .medium:
                 return LayoutConstants(
-                    hPadding: 18,
-                    vPadding: 12,
+                    hPadding: 16,
+                    vPadding: 15,
                     waveformWidth: 130,
                     waveformHeight: 32,
                     iconSize: 20,
@@ -2060,14 +2109,15 @@ struct BottomOverlayView: View {
                     modeFontSize: 12,
                     cornerRadius: 18,
                     barCount: 9,
-                    barWidth: 3.5,
-                    barSpacing: 4.5,
+                    barWidth: 4.0,
+                    barSpacing: 11,
                     minBarHeight: 6,
-                    maxBarHeight: 28,
-                    containerWidth: 340,
-                    overlayWidth: 380,
-                    overlayHeight: 156,
+                    maxBarHeight: 32,
+                    containerWidth: 420,
+                    overlayWidth: 420,
+                    overlayHeight: 168,
                     previewBoxHeight: 0,
+                    contentGap: 14,
                     usesFixedCanvas: false,
                     showsTopControls: true,
                     showsPreview: true,
@@ -2075,23 +2125,24 @@ struct BottomOverlayView: View {
                 )
             case .large:
                 return LayoutConstants(
-                    hPadding: 18,
-                    vPadding: 12,
+                    hPadding: 22,
+                    vPadding: 20,
                     waveformWidth: 180,
                     waveformHeight: 48,
                     iconSize: 26,
-                    transFontSize: 15,
+                    transFontSize: 14,
                     modeFontSize: 14,
                     cornerRadius: 24,
                     barCount: 11,
                     barWidth: 5.0,
-                    barSpacing: 6.0,
+                    barSpacing: 12.0,
                     minBarHeight: 8,
-                    maxBarHeight: 44,
+                    maxBarHeight: 48,
                     containerWidth: 600,
                     overlayWidth: 600,
                     overlayHeight: 288,
                     previewBoxHeight: 92,
+                    contentGap: 14,
                     usesFixedCanvas: true,
                     showsTopControls: true,
                     showsPreview: true,
@@ -2113,8 +2164,15 @@ struct BottomOverlayView: View {
         self.settings.overlaySize == .pill
     }
 
+    /// The overlay's own mode palette (Basics ramp). `OverlayMode.notchColor`
+    /// still drives the recording notch, which is out of scope here.
     private var modeColor: Color {
-        self.contentState.mode.notchColor
+        OverlayModePalette.fill(for: self.contentState.mode)
+    }
+
+    /// Mode label colour when it sits on an accent-tinted fill.
+    private var modeInk: Color {
+        OverlayModePalette.ink(for: self.contentState.mode)
     }
 
     private var modeLabel: String {
@@ -2242,32 +2300,15 @@ struct BottomOverlayView: View {
         return "\(label.prefix(prefixLength))..."
     }
 
-    private var promptSelectorFontSize: CGFloat {
-        max(self.layout.modeFontSize - 1, 9)
-    }
-
-    private var promptSelectorLabelFontSize: CGFloat {
-        max(self.promptSelectorFontSize - 1, 8)
-    }
-
-    private var promptSelectorChipWidth: CGFloat {
-        self.isCompactControls ? 118 : 164
-    }
-
-    private var promptSelectorVerticalPadding: CGFloat {
-        4
-    }
-
+    /// Distance from the chip to the menu it opens. The menu panel reserves its
+    /// own 6pt transparent ring for the drop shadow, which supplies the gap.
     private var promptMenuGap: CGFloat {
-        max(0, self.layout.vPadding * 0.05)
+        0
     }
 
-    private var promptSelectorCornerRadius: CGFloat {
-        max(self.layout.cornerRadius * 0.42, 8)
-    }
-
+    /// Menu width (board 17: all three chip menus are 280 wide).
     private var promptSelectorMaxWidth: CGFloat {
-        self.layout.waveformWidth * 1.75
+        280
     }
 
     private var previewMaxHeight: CGFloat {
@@ -2388,27 +2429,7 @@ struct BottomOverlayView: View {
 
     private func richPreviewText(_ previewText: String) -> Text {
         Text(previewText)
-            .foregroundColor(.white.opacity(0.9))
-    }
-
-    private var overlayBorderLineWidth: CGFloat {
-        self.settings.overlaySize == .large ? 0.8 : 1
-    }
-
-    private var overlayBorderTopOpacity: Double {
-        switch self.settings.overlaySize {
-        case .pill: return 0.22 // a touch crisper so the smaller pill reads clearly
-        case .large: return 0.10
-        default: return 0.15
-        }
-    }
-
-    private var overlayBorderBottomOpacity: Double {
-        switch self.settings.overlaySize {
-        case .pill: return 0.10
-        case .large: return 0.05
-        default: return 0.08
-        }
+            .foregroundColor(BasicsTokens.Dark.ink)
     }
 
     private var overlayAnimatedOffsetY: CGFloat {
@@ -2426,37 +2447,33 @@ struct BottomOverlayView: View {
         1.0
     }
 
+    /// The neutral chip: a capsule on the panel, not a black pill floating above it.
     private func chipBackground(isHovered: Bool, disabled: Bool) -> some View {
-        let fillColor: Color
-        if disabled {
-            fillColor = Color.black.opacity(0.95)
-        } else if isHovered {
-            fillColor = Color(red: 0.13, green: 0.13, blue: 0.16)
-        } else {
-            fillColor = Color.black
-        }
-
-        let topStrokeOpacity: Double = disabled ? 0.10 : (isHovered ? 0.36 : 0.14)
-        let bottomStrokeOpacity: Double = disabled ? 0.06 : (isHovered ? 0.22 : 0.08)
-        let hoverShadowColor: Color = (isHovered && !disabled) ? Color.white.opacity(0.16) : .clear
-
-        return RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius)
-            .fill(fillColor)
+        Capsule()
+            .fill(isHovered && !disabled ? BasicsTokens.Dark.chipFillHover : BasicsTokens.Dark.chipFill)
             .overlay(
-                RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(topStrokeOpacity),
-                                Color.white.opacity(bottomStrokeOpacity),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
+                Capsule().strokeBorder(
+                    isHovered && !disabled ? BasicsTokens.Dark.chipBorderHover : BasicsTokens.Dark.chipBorder,
+                    lineWidth: 1
+                )
             )
-            .shadow(color: hoverShadowColor, radius: 6, x: 0, y: 1)
+    }
+
+    /// The mode chip is the one green moment on this surface, tinted with the
+    /// current mode's own hue.
+    private func modeChipBackground(isHovered: Bool, disabled: Bool) -> some View {
+        Capsule()
+            .fill(self.modeColor.opacity(isHovered && !disabled ? 0.20 : 0.14))
+            .overlay(
+                Capsule().strokeBorder(
+                    self.modeColor.opacity(isHovered && !disabled ? 0.44 : 0.32),
+                    lineWidth: 1
+                )
+            )
+    }
+
+    private var chipHeight: CGFloat {
+        self.isCompactControls ? 22 : 24
     }
 
     private func closePromptMenu() {
@@ -2552,28 +2569,43 @@ struct BottomOverlayView: View {
         )
     }
 
+    /// Uppercase micro-label that names a chip. Large canvas only — at medium the
+    /// chips have to speak for themselves.
+    private func chipCaption(_ text: String) -> some View {
+        Text(text)
+            .basicsMicroLabel(11)
+            .foregroundStyle(BasicsTokens.Dark.faint)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var chipChevron: some View {
+        Image(systemName: "chevron.up")
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(BasicsTokens.Dark.muted)
+    }
+
     private var modeSelectorTrigger: some View {
-        HStack(spacing: 5) {
-            if !self.isCompactControls {
-                Text("Mode:")
-                    .font(.system(size: self.promptSelectorFontSize, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
+        HStack(spacing: 7) {
+            Circle()
+                .fill(self.modeColor)
+                .frame(width: 5, height: 5)
             Text(self.modeLabel)
-                .font(.system(size: self.promptSelectorFontSize, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.75))
+                .basicsLabel(12)
+                .foregroundStyle(self.modeInk)
                 .lineLimit(1)
             Image(systemName: "chevron.up")
-                .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(self.modeInk)
         }
         .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 8)
-        .padding(.vertical, self.promptSelectorVerticalPadding)
+        .padding(.horizontal, 10)
+        .frame(height: self.chipHeight)
         .background(
-            self.chipBackground(isHovered: self.isHoveringModeChip, disabled: self.contentState.isProcessing)
+            self.modeChipBackground(
+                isHovered: self.isHoveringModeChip,
+                disabled: self.contentState.isProcessing
+            )
         )
     }
 
@@ -2604,36 +2636,20 @@ struct BottomOverlayView: View {
     }
 
     private var promptSelectorTrigger: some View {
-        HStack(spacing: 5) {
-            Text("AI Prompt:")
-                .font(.system(size: self.promptSelectorFontSize, weight: .medium))
-                .foregroundStyle(.white.opacity(0.5))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+        HStack(spacing: 7) {
             Text(self.promptSelectorDisplayLabel)
-                .font(.system(size: self.promptSelectorLabelFontSize, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.75))
+                .basicsLabel(12)
+                .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
             if self.isAppPromptOverrideActive {
-                Text("App")
-                    .font(.system(size: max(self.promptSelectorFontSize - 2, 8), weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.15))
-                    )
+                OverlayAppBadge()
             }
-            Image(systemName: "chevron.up")
-                .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
+            self.chipChevron
         }
-        .frame(width: self.promptSelectorChipWidth, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, self.promptSelectorVerticalPadding)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 10)
+        .frame(height: self.chipHeight)
         .background(
             self.chipBackground(
                 isHovered: self.isHoveringPromptChip,
@@ -2680,24 +2696,23 @@ struct BottomOverlayView: View {
 
     private var actionsSelectorTrigger: some View {
         let actionsDisabled = self.historyStore.entries.isEmpty || self.contentState.isProcessing
-        return HStack(spacing: 5) {
+        return HStack(spacing: 7) {
             Text("Actions")
-                .font(.system(size: self.promptSelectorFontSize, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
+                .basicsLabel(12)
+                .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                 .lineLimit(1)
-            Image(systemName: "chevron.up")
-                .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
+            self.chipChevron
         }
         .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 8)
-        .padding(.vertical, self.promptSelectorVerticalPadding)
+        .padding(.horizontal, 10)
+        .frame(height: self.chipHeight)
         .background(
             self.chipBackground(
                 isHovered: self.isHoveringActionsChip,
                 disabled: actionsDisabled
             )
         )
+        .opacity(actionsDisabled ? 0.45 : 1)
     }
 
     private var actionsSelectorView: some View {
@@ -2734,61 +2749,53 @@ struct BottomOverlayView: View {
     }
 
     private var settingsChip: some View {
-        let disabled = false
-        return HStack(spacing: 0) {
-            Image(systemName: "gearshape")
-                .font(.system(size: max(self.promptSelectorFontSize + 1, 10), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, self.promptSelectorVerticalPadding)
-        .background(
-            self.chipBackground(
-                isHovered: self.isHoveringSettingsChip,
-                disabled: disabled
+        Image(systemName: "gearshape")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(BasicsTokens.Dark.inkSubtle)
+            .frame(width: self.chipHeight, height: self.chipHeight)
+            .background(
+                self.chipBackground(
+                    isHovered: self.isHoveringSettingsChip,
+                    disabled: false
+                )
             )
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            self.isHoveringSettingsChip = hovering
-        }
-        .onTapGesture {
-            self.closePromptMenu()
-            self.closeModeMenu()
-            self.closeActionsMenu()
-            self.contentState.onOpenPreferencesRequested?()
-        }
-        .help("Open Preferences")
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                self.isHoveringSettingsChip = hovering
+            }
+            .onTapGesture {
+                self.closePromptMenu()
+                self.closeModeMenu()
+                self.closeActionsMenu()
+                self.contentState.onOpenPreferencesRequested?()
+            }
+            .help("Open Preferences")
     }
 
     private func failureIconButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: max(self.layout.transFontSize - 1, 10), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.86))
-                .frame(width: 20, height: 20)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                )
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(BasicsTokens.Dark.ink)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(BasicsTokens.Dark.iconButton))
         }
         .buttonStyle(.plain)
         .help(help)
     }
 
     private var aiProcessingFailureView: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Text(self.contentState.aiProcessingFailureMessage)
-                .font(.system(size: self.layout.transFontSize, weight: .semibold))
+                .basicsProse(self.layout.transFontSize)
                 .foregroundStyle(
                     self.contentState.canRetryAIProcessingFailure
-                        ? Color.white.opacity(0.9)
-                        : Color.orange.opacity(0.9)
+                        ? BasicsTokens.Dark.ink
+                        : BasicsTokens.Dark.warning
                 )
                 .lineLimit(1)
                 .truncationMode(.tail)
-
-            Spacer(minLength: 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if self.contentState.canRetryAIProcessingFailure {
                 self.failureIconButton(systemName: "arrow.clockwise", help: "Try again") {
@@ -2802,22 +2809,28 @@ struct BottomOverlayView: View {
                 NotchOverlayManager.shared.hide()
             }
         }
-        .frame(maxWidth: self.previewMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func scrollablePreviewText(_ previewText: String) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 self.richPreviewText(previewText)
-                    .font(.system(size: self.layout.transFontSize, weight: .medium))
+                    .font(BasicsTokens.prose(self.layout.transFontSize))
                     .multilineTextAlignment(.leading)
+                    .lineSpacing(4)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Color.clear.frame(height: 1).id("bottom")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .clipped()
+            .onAppear {
+                DispatchQueue.main.async {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
             .onChange(of: previewText) { _, _ in
                 DispatchQueue.main.async {
                     proxy.scrollTo("bottom", anchor: .bottom)
@@ -2830,299 +2843,283 @@ struct BottomOverlayView: View {
     private func dynamicPreviewText(_ previewText: String) -> some View {
         if self.settings.overlaySize == .small {
             self.richPreviewText(previewText)
-                .font(.system(size: self.layout.transFontSize, weight: .medium))
+                .font(BasicsTokens.prose(self.layout.transFontSize))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
                 .truncationMode(.head)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, max(2, self.transcriptionVerticalPadding - 1))
         } else {
             self.richPreviewText(previewText)
-                .font(.system(size: self.layout.transFontSize, weight: .medium))
+                .font(BasicsTokens.prose(self.layout.transFontSize))
                 .multilineTextAlignment(.leading)
+                .lineSpacing(3)
                 .lineLimit(Int(self.previewMaxHeight / max(self.estimatedPreviewLineHeight, 1)))
                 .truncationMode(.head)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(width: self.previewMaxWidth, alignment: .leading)
-                .padding(.vertical, self.transcriptionVerticalPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    var body: some View {
-        VStack(spacing: max(4, self.layout.vPadding / 2)) {
-            if self.layout.showsTopControls {
-                HStack(spacing: self.isCompactControls ? 6 : 8) {
-                    self.modeSelectorView
-                    self.promptSelectorView
-                    Spacer(minLength: 4)
-                    self.actionsSelectorView
-                    if !self.isCompactControls {
-                        self.settingsChip
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: self.isCompactControls ? .center : .leading)
-                .padding(.horizontal, self.layout.hPadding)
-            }
-
-            VStack(spacing: self.layout.vPadding / 2) {
-                if self.shouldReservePreviewArea {
-                    if self.layout.usesFixedCanvas {
-                        // Transcription text area (fixed-height in large mode)
-                        Group {
-                            if self.shouldSuppressPreviewDuringRelease {
-                                Color.clear
-                            } else if self.shouldShowAIProcessingFailure {
-                                self.aiProcessingFailureView
-                            } else if self.shouldShowProcessingPreview {
-                                self.scrollablePreviewText(self.processingPreviewText)
-                            } else if self.shouldShowProcessingStatus {
-                                // Temporarily hidden; the waveform sweep carries processing state.
-                                // ShimmerText(
-                                //     text: self.processingStatusText,
-                                //     color: self.modeColor,
-                                //     font: .system(size: self.layout.transFontSize, weight: .medium)
-                                // )
-                                // .id(self.processingStatusCycleID)
-                                // .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                                Color.clear
-                            } else if self.contentState.isProcessing {
-                                Color.clear
-                            } else if self.hasTranscription {
-                                let previewText = self.transcriptionPreviewText
-                                if !previewText.isEmpty {
-                                    ScrollViewReader { proxy in
-                                        ScrollView(.vertical, showsIndicators: false) {
-                                            Text(previewText)
-                                                .font(.system(size: self.layout.transFontSize, weight: .medium))
-                                                .foregroundStyle(.white.opacity(0.9))
-                                                .multilineTextAlignment(.leading)
-                                                .lineLimit(nil)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                            Color.clear.frame(height: 1).id("bottom")
-                                        }
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                                        .clipped()
-                                        .onAppear {
-                                            DispatchQueue.main.async {
-                                                proxy.scrollTo("bottom", anchor: .bottom)
-                                            }
-                                        }
-                                        .onChange(of: previewText) { _, _ in
-                                            DispatchQueue.main.async {
-                                                proxy.scrollTo("bottom", anchor: .bottom)
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                Color.clear
-                            }
-                        }
-                        .padding(.vertical, self.transcriptionVerticalPadding)
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: self.previewMaxHeight,
-                            maxHeight: self.previewMaxHeight,
-                            alignment: .topLeading
-                        )
-                    } else {
-                        // Original dynamic preview behavior for small/medium
-                        Group {
-                            if self.shouldSuppressPreviewDuringRelease {
-                                Color.clear
-                            } else if self.shouldShowAIProcessingFailure {
-                                self.aiProcessingFailureView
-                            } else if self.shouldShowProcessingPreview {
-                                self.dynamicPreviewText(self.processingPreviewText)
-                            } else if self.hasTranscription && !self.contentState.isProcessing {
-                                let previewText = self.transcriptionPreviewText
-                                if !previewText.isEmpty {
-                                    if self.settings.overlaySize == .small {
-                                        Text(previewText)
-                                            .font(.system(size: self.layout.transFontSize, weight: .medium))
-                                            .foregroundStyle(.white.opacity(0.9))
-                                            .multilineTextAlignment(.leading)
-                                            .lineLimit(1)
-                                            .truncationMode(.head)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.vertical, max(2, self.transcriptionVerticalPadding - 1))
-                                    } else {
-                                        Text(previewText)
-                                            .font(.system(size: self.layout.transFontSize, weight: .medium))
-                                            .foregroundStyle(.white.opacity(0.9))
-                                            .multilineTextAlignment(.leading)
-                                            .lineLimit(Int(self.previewMaxHeight / max(self.estimatedPreviewLineHeight, 1)))
-                                            .truncationMode(.head)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .frame(width: self.previewMaxWidth, alignment: .leading)
-                                            .padding(.vertical, self.transcriptionVerticalPadding)
-                                    }
-                                }
-                            } else if self.shouldShowProcessingStatus {
-                                // Temporarily hidden; the waveform sweep carries processing state.
-                                // ShimmerText(
-                                //     text: self.processingStatusText,
-                                //     color: self.modeColor,
-                                //     font: .system(size: self.layout.transFontSize, weight: .medium)
-                                // )
-                                // .id(self.processingStatusCycleID)
-                                Color.clear
-                            } else if self.contentState.isProcessing {
-                                Color.clear
-                            } else {
-                                Color.clear
-                            }
-                        }
-                        .background(
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .preference(key: DynamicPreviewHeightPreferenceKey.self, value: proxy.size.height)
-                            }
-                        )
-                        .frame(
-                            maxWidth: self.previewMaxWidth,
-                            minHeight: self.effectiveDynamicPreviewMinHeight,
-                            maxHeight: self.effectiveDynamicPreviewLockedHeight
-                        )
-                    }
-                }
-
-                // Waveform + Mode label row
-                HStack(spacing: self.layout.hPadding / 1.5) {
-                    // Target app icon (the app where text will be typed)
-                    let appIcon = self.displayedAppIcon
-                    let showModelLoading = self.layout.showsModeLabel && !self.appServices.asr.isAsrReady &&
-                        (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
-                    VStack(spacing: 2) {
-                        if showModelLoading {
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
-                        if let appIcon = appIcon {
-                            Image(nsImage: appIcon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: self.layout.iconSize, height: self.layout.iconSize)
-                                .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4))
-                        } else if !self.layout.showsModeLabel {
-                            Circle()
-                                .fill(self.modeColor.opacity(0.9))
-                                .frame(width: max(self.layout.iconSize * 0.45, 7), height: max(self.layout.iconSize * 0.45, 7))
-                        }
-                    }
-                    .frame(width: self.layout.iconSize, height: self.layout.iconSize)
-                    .opacity((appIcon != nil || showModelLoading || !self.layout.showsModeLabel) ? 1 : 0)
-
-                    // Waveform visualization
-                    BottomWaveformView(color: self.modeColor, layout: self.layout)
-                        .frame(width: self.layout.waveformWidth, height: self.layout.waveformHeight)
-
-                    // Mode label + model load hint
-                    if self.layout.showsModeLabel {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(self.modeLabel)
-                                .font(.system(size: self.layout.modeFontSize, weight: .semibold))
-                                .foregroundStyle(self.modeColor)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-
-                            if !self.appServices.asr.isAsrReady &&
-                                (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
-                                && self.settings.overlaySize != .small
-                            {
-                                Text("Loading model…")
-                                    .font(.system(size: max(self.layout.modeFontSize - 2, 9), weight: .medium))
-                                    .foregroundStyle(.orange.opacity(0.85))
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, self.layout.hPadding)
-            .padding(.vertical, self.layout.vPadding)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .background(
-                ZStack {
-                    // Solid pitch black background, with a soft drop shadow so the pill lifts
-                    // off whatever is behind it (pill size only; outer padding reserves room).
-                    RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                        .fill(Color.black)
-                        .shadow(
-                            color: Color.black.opacity(self.isPillSize ? 0.32 : 0),
-                            radius: self.isPillSize ? PillShadowMetrics.radius : 0,
-                            x: 0,
-                            y: self.isPillSize ? PillShadowMetrics.yOffset : 0
-                        )
-
-                    if self.isPillSize {
-                        // Glossy border: a bright highlight that slowly rotates around the edge.
-                        // Paused under reduce-motion to avoid continuous redraws on low-resource Macs.
-                        if self.reduceMotion || !self.contentState.isBottomOverlayPresented {
-                            RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                                .strokeBorder(
-                                    AngularGradient(
-                                        gradient: Gradient(stops: [
-                                            .init(color: .white.opacity(0.06), location: 0.00),
-                                            .init(color: .white.opacity(0.55), location: 0.13),
-                                            .init(color: .white.opacity(0.10), location: 0.30),
-                                            .init(color: .white.opacity(0.03), location: 0.55),
-                                            .init(color: .white.opacity(0.22), location: 0.80),
-                                            .init(color: .white.opacity(0.06), location: 1.00),
-                                        ]),
-                                        center: .center,
-                                        angle: .degrees(0)
-                                    ),
-                                    lineWidth: 1.2
-                                )
-                        } else {
-                            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                                let seconds = max(
-                                    0,
-                                    timeline.date.timeIntervalSince(self.borderAnimationStartedAt ?? timeline.date)
-                                )
-                                let angle = (seconds.truncatingRemainder(dividingBy: 6.0) / 6.0) * 360.0
-                                RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                                    .strokeBorder(
-                                        AngularGradient(
-                                            gradient: Gradient(stops: [
-                                                .init(color: .white.opacity(0.06), location: 0.00),
-                                                .init(color: .white.opacity(0.55), location: 0.13),
-                                                .init(color: .white.opacity(0.10), location: 0.30),
-                                                .init(color: .white.opacity(0.03), location: 0.55),
-                                                .init(color: .white.opacity(0.22), location: 0.80),
-                                                .init(color: .white.opacity(0.06), location: 1.00),
-                                            ]),
-                                            center: .center,
-                                            angle: .degrees(angle)
-                                        ),
-                                        lineWidth: 1.2
-                                    )
-                            }
-                        }
-                    } else {
-                        // Inner border
-                        RoundedRectangle(cornerRadius: self.layout.cornerRadius)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(self.overlayBorderTopOpacity),
-                                        Color.white.opacity(self.overlayBorderBottomOpacity),
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                lineWidth: self.overlayBorderLineWidth
-                            )
-                    }
-                }
+    /// The 92pt bordered canvas the large overlay reserves for the transcript.
+    private func largePreviewCanvas<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: self.layout.previewBoxHeight,
+                maxHeight: self.layout.previewBoxHeight,
+                alignment: .bottomLeading
             )
-            .frame(maxWidth: .infinity, alignment: .top)
-            .transaction { transaction in
-                if self.shouldSuppressPreviewDuringRelease {
-                    transaction.animation = nil
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                            .strokeBorder(BasicsTokens.Dark.hairline, lineWidth: 1)
+                    )
+            )
+    }
+
+    /// Separator between the waveform row and the preview at small / medium.
+    private var previewHairline: some View {
+        Rectangle()
+            .fill(BasicsTokens.Dark.hairline)
+            .frame(height: 1)
+    }
+
+    /// Chip row — mode, prompt, actions, and (large only) the gear.
+    private var topControlsRow: some View {
+        HStack(spacing: self.isCompactControls ? 8 : 10) {
+            if !self.isCompactControls {
+                self.chipCaption("Mode")
+            }
+            self.modeSelectorView
+
+            if !self.isCompactControls {
+                self.chipCaption("AI prompt")
+            }
+            self.promptSelectorView
+
+            self.actionsSelectorView
+
+            Spacer(minLength: 8)
+
+            if !self.isCompactControls {
+                self.settingsChip
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Target-app icon (or mode dot), waveform, mode label + engine status.
+    private var waveformRow: some View {
+        let appIcon = self.displayedAppIcon
+        let isWarmingUp = !self.appServices.asr.isAsrReady &&
+            (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
+        let showModelLoading = self.layout.showsModeLabel && isWarmingUp
+
+        return HStack(spacing: max(self.layout.hPadding / 1.5, 10)) {
+            VStack(spacing: 2) {
+                if showModelLoading {
+                    ProgressView()
+                        .controlSize(.mini)
                 }
+                if let appIcon = appIcon {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: self.layout.iconSize, height: self.layout.iconSize)
+                        .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4, style: .continuous))
+                } else if !self.layout.showsModeLabel {
+                    Circle()
+                        .fill(self.modeColor)
+                        .frame(
+                            width: max(self.layout.iconSize * 0.45, 7),
+                            height: max(self.layout.iconSize * 0.45, 7)
+                        )
+                }
+            }
+            .frame(width: self.layout.iconSize, height: self.layout.iconSize)
+            .opacity((appIcon != nil || showModelLoading || !self.layout.showsModeLabel) ? 1 : 0)
+
+            if self.layout.showsModeLabel {
+                Spacer(minLength: 8)
+            }
+
+            BottomWaveformView(
+                color: self.modeColor,
+                layout: self.layout,
+                isEngineWarmingUp: isWarmingUp
+            )
+            .frame(width: self.layout.waveformWidth, height: self.layout.waveformHeight)
+
+            if self.layout.showsModeLabel {
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    // At medium and large the mode CHIP already names the mode, so
+                    // the label next to the waveform would say it twice.
+                    if !self.layout.showsTopControls {
+                        Text(self.modeLabel)
+                            .basicsLabel(self.layout.modeFontSize)
+                            .foregroundStyle(BasicsTokens.Dark.inkSubtle)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+
+                    if isWarmingUp, self.settings.overlaySize != .small {
+                        Text(self.appServices.asr.modelPreparationStatusText)
+                            .basicsProse(max(self.layout.modeFontSize - 2, 10))
+                            .foregroundStyle(BasicsTokens.Dark.warning)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minWidth: self.layout.iconSize, alignment: .trailing)
+            }
+        }
+    }
+
+    /// The 92pt canvas at large: failure row, streaming partials, or the frozen
+    /// transcript — whichever the panel is currently carrying.
+    @ViewBuilder
+    private var fixedCanvasPreviewContent: some View {
+        if self.shouldSuppressPreviewDuringRelease {
+            Color.clear
+        } else if self.shouldShowAIProcessingFailure {
+            self.aiProcessingFailureView
+        } else if self.shouldShowProcessingPreview {
+            self.scrollablePreviewText(self.processingPreviewText)
+        } else if self.shouldShowProcessingStatus || self.contentState.isProcessing {
+            // The waveform sweep carries processing state; the canvas stays empty.
+            Color.clear
+        } else if self.hasTranscription, !self.transcriptionPreviewText.isEmpty {
+            self.scrollablePreviewText(self.transcriptionPreviewText)
+        } else {
+            Color.clear
+        }
+    }
+
+    /// The same content at small / medium, where the panel grows to fit instead
+    /// of scrolling inside a fixed box.
+    private var dynamicPreviewContent: some View {
+        Group {
+            if self.shouldSuppressPreviewDuringRelease {
+                Color.clear
+            } else if self.shouldShowAIProcessingFailure {
+                self.aiProcessingFailureView
+            } else if self.shouldShowProcessingPreview {
+                self.dynamicPreviewText(self.processingPreviewText)
+            } else if self.hasTranscription, !self.contentState.isProcessing,
+                      !self.transcriptionPreviewText.isEmpty
+            {
+                self.dynamicPreviewText(self.transcriptionPreviewText)
+            } else {
+                Color.clear
+            }
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: DynamicPreviewHeightPreferenceKey.self, value: proxy.size.height)
+            }
+        )
+        .frame(
+            maxWidth: .infinity,
+            minHeight: self.effectiveDynamicPreviewMinHeight,
+            maxHeight: self.effectiveDynamicPreviewLockedHeight,
+            alignment: .leading
+        )
+    }
+
+    /// Panel ground. Pill keeps its own darker body and the rotating rim; every
+    /// other size is the flat card with a single hairline border.
+    private var panelBackground: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: self.layout.cornerRadius, style: .continuous)
+                .fill(self.isPillSize ? BasicsTokens.Dark.panel : BasicsTokens.Dark.card)
+                .shadow(
+                    color: Color.black.opacity(self.isPillSize ? 0.55 : 0.52),
+                    radius: self.isPillSize ? PillShadowMetrics.radius : 32,
+                    x: 0,
+                    y: self.isPillSize ? PillShadowMetrics.yOffset : 12
+                )
+
+            if self.isPillSize {
+                // A bright highlight that slowly rotates around the edge. Paused
+                // under reduce-motion to avoid continuous redraws.
+                if self.reduceMotion || !self.contentState.isBottomOverlayPresented {
+                    RoundedRectangle(cornerRadius: self.layout.cornerRadius, style: .continuous)
+                        .strokeBorder(Self.pillRimGradient(angle: 0), lineWidth: 1.2)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                        let seconds = max(
+                            0,
+                            timeline.date.timeIntervalSince(self.borderAnimationStartedAt ?? timeline.date)
+                        )
+                        let angle = (seconds.truncatingRemainder(dividingBy: 6.0) / 6.0) * 360.0
+                        RoundedRectangle(cornerRadius: self.layout.cornerRadius, style: .continuous)
+                            .strokeBorder(Self.pillRimGradient(angle: angle), lineWidth: 1.2)
+                    }
+                }
+            } else {
+                RoundedRectangle(cornerRadius: self.layout.cornerRadius, style: .continuous)
+                    .strokeBorder(BasicsTokens.Dark.border, lineWidth: 1)
+            }
+        }
+    }
+
+    private static func pillRimGradient(angle: Double) -> AngularGradient {
+        AngularGradient(
+            gradient: Gradient(stops: [
+                .init(color: .white.opacity(0.06), location: 0.00),
+                .init(color: .white.opacity(0.55), location: 0.13),
+                .init(color: .white.opacity(0.10), location: 0.30),
+                .init(color: .white.opacity(0.03), location: 0.55),
+                .init(color: .white.opacity(0.22), location: 0.80),
+                .init(color: .white.opacity(0.06), location: 1.00),
+            ]),
+            center: .center,
+            angle: .degrees(angle)
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: self.isPillSize ? .center : .leading, spacing: self.layout.contentGap) {
+            if self.layout.showsTopControls {
+                self.topControlsRow
+            }
+
+            // The large canvas is a fixed 288pt, so the three rows push apart
+            // instead of stacking at the top.
+            if self.layout.usesFixedCanvas {
+                Spacer(minLength: 0)
+            }
+
+            self.waveformRow
+
+            if self.layout.usesFixedCanvas {
+                Spacer(minLength: 0)
+            }
+
+            if self.shouldReservePreviewArea {
+                if self.layout.usesFixedCanvas {
+                    self.largePreviewCanvas {
+                        self.fixedCanvasPreviewContent
+                    }
+                } else {
+                    self.previewHairline
+                    self.dynamicPreviewContent
+                }
+            }
+        }
+        .padding(.horizontal, self.layout.hPadding)
+        .padding(.vertical, self.layout.vPadding)
+        .frame(maxWidth: .infinity, alignment: self.isPillSize ? .center : .leading)
+        .background(self.panelBackground)
+        .transaction { transaction in
+            if self.shouldSuppressPreviewDuringRelease {
+                transaction.animation = nil
             }
         }
         .frame(
@@ -3176,7 +3173,6 @@ struct BottomOverlayView: View {
         .onChange(of: self.contentState.isProcessing) { _, processing in
             self.processingStatusVisible = processing
             if processing {
-                self.processingStatusCycleID &+= 1
                 self.closePromptMenu()
                 self.closeModeMenu()
                 self.closeActionsMenu()
@@ -3249,6 +3245,9 @@ struct BottomOverlayView: View {
 struct BottomWaveformView: View {
     let color: Color
     let layout: BottomOverlayView.LayoutConstants
+    /// Engine still downloading or loading — the bars go inert rather than
+    /// pretending to listen.
+    var isEngineWarmingUp: Bool = false
 
     @ObservedObject private var contentState = NotchContentState.shared
     // Initialize with max possible bar count (11 for large) to prevent index-out-of-range before onAppear
@@ -3284,24 +3283,29 @@ struct BottomWaveformView: View {
     }
 
     private var currentGlowIntensity: CGFloat {
-        if self.isPillStyle {
+        if self.isPillStyle || self.isEngineWarmingUp {
             return 0.0
         }
-        return self.isProcessingVisualActive ? 0.0 : 0.5
+        return self.isProcessingVisualActive ? 0.0 : 0.35
     }
 
     private var currentGlowRadius: CGFloat {
-        if self.isPillStyle {
+        if self.isPillStyle || self.isEngineWarmingUp {
             return 0.0
         }
         return self.isProcessingVisualActive ? 0.0 : 4
     }
 
     private var barFillColor: Color {
-        if self.isPillStyle {
-            return Color.white.opacity(self.isProcessingVisualActive ? 0.32 : 0.88)
+        if self.isEngineWarmingUp {
+            return BasicsTokens.Dark.barInert
         }
-        return self.color.opacity(self.isProcessingVisualActive ? 0.16 : 1.0)
+        if self.isProcessingVisualActive {
+            return BasicsTokens.Dark.barProcessing
+        }
+        // The pill has no mode label, so its bars stay neutral; every other size
+        // carries the mode colour (g400 while dictating).
+        return self.isPillStyle ? BasicsTokens.Dark.barPill : self.color
     }
 
     private var isReleaseAnimationActive: Bool {
@@ -3388,7 +3392,7 @@ struct BottomWaveformView: View {
     }
 
     private func displayHeight(at index: Int) -> CGFloat {
-        if self.isReleaseAnimationActive || self.contentState.isProcessing {
+        if self.isReleaseAnimationActive || self.contentState.isProcessing || self.isEngineWarmingUp {
             return self.minHeight
         }
         return self.safeBarHeight(at: index)

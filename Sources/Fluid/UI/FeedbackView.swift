@@ -4,13 +4,21 @@
 //
 //  Extracted from ContentView.swift to reduce monolithic architecture.
 //  Created: 2025-12-14
+//  Restyled to board "13 — Feedback" (+ sending / sent / failed).
 //
 
 import AppKit
 import SwiftUI
 
+/// Board "13 — Feedback".
+///
+/// One composer card carrying the message, the reply address and the send
+/// action; the debug-logs checkbox directly under it; then three hairline link
+/// rows. The submit path is unchanged — a real POST to the FluidVoice feedback
+/// endpoint, with the two outcome dialogs driven by its result.
 struct FeedbackView: View {
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     // MARK: - State Variables (moved from ContentView)
 
@@ -21,201 +29,353 @@ struct FeedbackView: View {
     @State private var showFeedbackConfirmation: Bool = false
     @State private var showFeedbackError: Bool = false
     @State private var feedbackErrorMessage: String = ""
-    @State private var appear: Bool = false
+    @FocusState private var isComposerFocused: Bool
+
+    private var canSend: Bool {
+        !self.feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !self.feedbackEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !self.isSendingFeedback
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "envelope.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(self.theme.palette.accent)
-                        VStack(alignment: .leading) {
-                            Text("Send Feedback")
-                                .font(.system(size: 28, weight: .bold))
-                            Text("Help us improve FluidVoice")
-                                .font(.system(size: 16))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .padding(.bottom, 8)
-
-                // Friendly Message & GitHub CTA
-                ThemedCard(style: .prominent, hoverEffect: false) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(.pink)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("We'd love to hear from you!")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(self.theme.palette.primaryText)
-
-                                Text("Your feedback helps us make FluidVoice even better")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(self.theme.palette.secondaryText)
-                            }
-                        }
-
-                        Divider()
-                            .padding(.vertical, 4)
-
-                        HStack(spacing: 12) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(.yellow)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Loving FluidVoice?")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(self.theme.palette.primaryText)
-
-                                Text("Give us a star on GitHub, or support continued free development to help make local dictation even better.")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(self.theme.palette.secondaryText)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            Spacer()
-
-                            HStack(spacing: 10) {
-                                if let githubURL = URL(string: "https://github.com/altic-dev/Fluid-oss") {
-                                    Link(destination: githubURL) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "star.fill")
-                                            Text("Star on GitHub")
-                                                .fontWeight(.semibold)
-                                        }
-                                        .font(.system(size: 14))
-                                        .padding(.horizontal, 20)
-                                        .padding(.vertical, 10)
-                                    }
-                                    .fluidButton(.glass, size: .medium)
-                                    .buttonHoverEffect()
-                                }
-
-                                if let sponsorURL = URL(string: "https://github.com/sponsors/altic-dev") {
-                                    Link(destination: sponsorURL) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "heart.fill")
-                                            Text("Support FluidVoice")
-                                                .fontWeight(.semibold)
-                                        }
-                                        .font(.system(size: 14))
-                                        .padding(.horizontal, 20)
-                                        .padding(.vertical, 10)
-                                    }
-                                    .fluidButton(.glass, size: .medium)
-                                    .buttonHoverEffect()
-                                    .help("Sponsor Altic on GitHub")
-                                }
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-
-                // Feedback Form
-                ThemedCard(style: .standard, hoverEffect: false) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Email")
-                                .font(.headline)
-                                .fontWeight(.semibold)
-
-                            TextField("your.email@example.com", text: self.$feedbackEmail)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 14))
-
-                            Text("Feedback")
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                                .padding(.top, 8)
-
-                            TextEditor(text: self.$feedbackText)
-                                .font(.system(size: 14))
-                                .frame(height: 120)
-                                .padding(12)
-                                .background(RoundedRectangle(cornerRadius: 8)
-                                    .fill(self.theme.palette.contentBackground)
-                                    .overlay(RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1.2)))
-                                .scrollContentBackground(.hidden)
-                                .overlay(
-                                    Group {
-                                        if self.feedbackText.isEmpty {
-                                            Text("Share your thoughts, report bugs, or suggest features...")
-                                                .font(.subheadline)
-                                                .foregroundStyle(.secondary)
-                                                .padding(.leading, 4)
-                                        }
-                                    }
-                                    .allowsHitTesting(false)
-                                )
-
-                            // Debug logs option
-                            Toggle("Include debug logs", isOn: self.$includeDebugLogs)
-                                .toggleStyle(GlassToggleStyle())
-
-                            // Send Button
-                            HStack {
-                                Spacer()
-
-                                Button(action: {
-                                    Task {
-                                        await self.sendFeedback()
-                                    }
-                                }) {
-                                    HStack(spacing: 8) {
-                                        if self.isSendingFeedback {
-                                            ProgressView()
-                                                .fixedSize()
-                                                .scaleEffect(0.8)
-                                        } else {
-                                            Image(systemName: "paperplane.fill")
-                                        }
-                                        Text(self.isSendingFeedback ? "Sending..." : "Send Feedback")
-                                            .fontWeight(.semibold)
-                                    }
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
-                                }
-                                .fluidButton(.glass, size: .medium)
-                                .disabled(self.feedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                    self.feedbackEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                    self.isSendingFeedback)
-                                .buttonHoverEffect()
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-                .modifier(CardAppearAnimation(delay: 0.1, appear: self.$appear))
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 28) {
+                self.pageHead
+                self.composer
+                self.linkRows
             }
-            .padding(24)
+            .padding(.horizontal, 40)
+            .padding(.top, 34)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .onAppear {
-            self.appear = true
+        .background(self.theme.palette.contentBackground)
+        .overlay {
+            if self.showFeedbackConfirmation {
+                self.sentDialog
+            } else if self.showFeedbackError {
+                self.failedDialog
+            }
         }
-        .alert("Feedback Sent", isPresented: self.$showFeedbackConfirmation) {
-            Button("OK") {}
-        } message: {
-            Text("Thank you for helping us improve FluidVoice.")
+    }
+
+    // MARK: - Page head
+
+    private var pageHead: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("App")
+                .basicsMicroLabel(11)
+                .foregroundStyle(self.theme.palette.accent)
+            Text("Feedback")
+                .basicsLabel(28)
+                .foregroundStyle(self.theme.palette.primaryText)
+            Text("Goes upstream to the FluidVoice maintainers, who this fork is built on. Your transcriptions are never attached — only what you type here.")
+                .basicsProse(15)
+                .foregroundStyle(self.theme.palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 700, alignment: .leading)
         }
-        .alert("Feedback Failed", isPresented: self.$showFeedbackError) {
-            Button("Try Again") {
-                Task {
-                    await self.sendFeedback()
+    }
+
+    // MARK: - Composer
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                ZStack(alignment: .topLeading) {
+                    if self.feedbackText.isEmpty {
+                        Text("Share your thoughts, report a bug, or suggest a feature…")
+                            .basicsProse(15)
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                            .padding(.top, 2)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextEditor(text: self.$feedbackText)
+                        .basicsProse(15)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                        .scrollContentBackground(.hidden)
+                        .focused(self.$isComposerFocused)
+                        .frame(height: 120)
+                }
+
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(self.theme.palette.separator)
+                        .frame(height: 1)
+
+                    HStack(spacing: 12) {
+                        TextField("your.email@example.com", text: self.$feedbackEmail)
+                            .textFieldStyle(.plain)
+                            .basicsMono(12)
+                            .foregroundStyle(self.theme.palette.primaryText)
+                            .padding(.horizontal, 12)
+                            .frame(width: 260, height: 32)
+                            .background(
+                                RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
+                                    .fill(self.theme.palette.cardBackground)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
+                                            .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
+                                    )
+                            )
+
+                        Spacer(minLength: 0)
+
+                        self.sendButton
+                    }
+                    .padding(.top, 12)
                 }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(self.feedbackErrorMessage)
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                    .fill(self.theme.palette.windowBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                            .stroke(
+                                self.isComposerFocused
+                                    ? self.theme.palette.accent.opacity(0.45)
+                                    : self.theme.palette.cardBorder,
+                                lineWidth: 1
+                            )
+                    )
+            )
+            .opacity(self.isSendingFeedback ? 0.55 : 1)
+            .allowsHitTesting(!self.isSendingFeedback)
+
+            self.debugLogsCheckbox
+        }
+    }
+
+    private var sendButton: some View {
+        Button {
+            Task { await self.sendFeedback() }
+        } label: {
+            HStack(spacing: 8) {
+                if self.isSendingFeedback {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                        .frame(width: 12, height: 12)
+                }
+                Text(self.isSendingFeedback ? "Sending…" : "Send feedback")
+                    .basicsButtonLabel(14)
+            }
+            .foregroundStyle(self.isSendingFeedback ? self.theme.palette.tertiaryText : Color.white)
+            .padding(.horizontal, 20)
+            .frame(height: 36)
+            .background(
+                Capsule().fill(
+                    self.isSendingFeedback
+                        ? self.theme.palette.sidebarBackground
+                        : self.theme.palette.accent
+                )
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!self.canSend)
+        .opacity(self.canSend || self.isSendingFeedback ? 1 : 0.45)
+    }
+
+    /// Wording matches what `includeDebugLogs` actually appends to the payload.
+    private var debugLogsCheckbox: some View {
+        Button {
+            self.includeDebugLogs.toggle()
+        } label: {
+            HStack(spacing: 11) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(self.includeDebugLogs ? self.theme.palette.accent : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(
+                                self.includeDebugLogs
+                                    ? self.theme.palette.accent
+                                    : BasicsBorder.strong(self.theme, self.colorScheme),
+                                lineWidth: 1.5
+                            )
+                    )
+                    .overlay {
+                        if self.includeDebugLogs {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Color.white)
+                        }
+                    }
+                    .frame(width: 17, height: 17)
+
+                Text("Attach debug logs — app version, macOS version and the last 30 log lines. No transcription text.")
+                    .basicsProse(14)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(self.isSendingFeedback)
+    }
+
+    // MARK: - Link rows
+
+    private var linkRows: some View {
+        VStack(spacing: 0) {
+            self.linkRow(
+                icon: "star",
+                title: "Star FluidVoice on GitHub",
+                subtitle: "altic-dev/FluidVoice — the upstream this fork tracks.",
+                url: URL(string: "https://github.com/altic-dev/Fluid-oss")
+            )
+            self.linkRow(
+                icon: "envelope",
+                title: "Your fork",
+                subtitle: "akeildev/basics-voice — where Send to Instinct and the notch HUD live.",
+                url: URL(string: "https://github.com/akeildev/basics-voice")
+            )
+            self.linkRow(
+                icon: "heart",
+                title: "Support FluidVoice",
+                subtitle: "Sponsor Altic on GitHub — keeps local dictation free to use.",
+                url: URL(string: "https://github.com/sponsors/altic-dev"),
+                help: "Sponsor Altic on GitHub"
+            )
+            Rectangle()
+                .fill(self.theme.palette.separator)
+                .frame(height: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func linkRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        url: URL?,
+        help: String? = nil
+    ) -> some View {
+        if let url {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(self.theme.palette.separator)
+                    .frame(height: 1)
+
+                Link(destination: url) {
+                    HStack(spacing: 16) {
+                        Image(systemName: icon)
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(self.theme.palette.secondaryText)
+                            .frame(width: 18, height: 18)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(title)
+                                .basicsLabel(15)
+                                .foregroundStyle(self.theme.palette.primaryText)
+                            Text(subtitle)
+                                .basicsProse(14)
+                                .foregroundStyle(self.theme.palette.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                            .frame(width: 14, height: 14)
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(help ?? title)
+            }
+        }
+    }
+
+    // MARK: - Outcome dialogs
+
+    private var sentDialog: some View {
+        self.dialog(
+            icon: "checkmark",
+            tint: self.theme.palette.accent,
+            title: "Feedback sent",
+            message: "Thank you for helping us improve FluidVoice."
+        ) {
+            LibraryPagePill(title: "OK", tone: .brand, height: 38, labelSize: 14, expands: true) {
+                self.showFeedbackConfirmation = false
+            }
+        }
+    }
+
+    private var failedDialog: some View {
+        self.dialog(
+            icon: "exclamationmark",
+            tint: BasicsTokens.Semantic.danger,
+            title: "Feedback failed",
+            message: self.feedbackErrorMessage
+        ) {
+            HStack(spacing: 10) {
+                LibraryPagePill(title: "Cancel", tone: .outline, height: 38, labelSize: 14, width: 183) {
+                    self.showFeedbackError = false
+                }
+
+                LibraryPagePill(title: "Try Again", tone: .brand, height: 38, labelSize: 14, width: 183) {
+                    self.showFeedbackError = false
+                    Task { await self.sendFeedback() }
+                }
+            }
+        }
+    }
+
+    private func dialog(
+        icon: String,
+        tint: Color,
+        title: String,
+        message: String,
+        @ViewBuilder actions: () -> some View
+    ) -> some View {
+        ZStack {
+            Color.black.opacity(0.18)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Circle()
+                    .fill(tint.opacity(0.10))
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(tint)
+                    )
+
+                Text(title)
+                    .basicsLabel(20)
+                    .foregroundStyle(self.theme.palette.primaryText)
+
+                Text(message)
+                    .basicsProse(15)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 352)
+
+                actions()
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+            .padding(.bottom, 26)
+            .frame(width: 440)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.xl, style: .continuous)
+                    .fill(self.theme.palette.cardBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.xl, style: .continuous)
+                            .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
+                    )
+            )
+            .shadow(color: BasicsTokens.Ink.foreground.opacity(0.30), radius: 40, x: 0, y: 32)
         }
     }
 
@@ -245,7 +405,7 @@ struct FeedbackView: View {
                 self.includeDebugLogs = false
             } else {
                 // Show error to user - inputs are preserved for retry
-                self.feedbackErrorMessage = "We couldn't send your feedback. Please check your internet connection and try again."
+                self.feedbackErrorMessage = "We couldn't send your feedback. Please check your internet connection and try again. What you typed is still here."
                 self.showFeedbackError = true
             }
         }
@@ -297,7 +457,7 @@ struct FeedbackView: View {
             let (_, response) = try await URLSession.shared.data(for: request)
 
             if let httpResponse = response as? HTTPURLResponse {
-                let success = (200...299).contains(httpResponse.statusCode)
+                let success = (200 ... 299).contains(httpResponse.statusCode)
                 if success {
                     DebugLogger.shared.info("Feedback submitted successfully", source: "FeedbackView")
                 } else {
@@ -321,4 +481,5 @@ struct FeedbackView: View {
 
 #Preview {
     FeedbackView()
+        .frame(width: 1096, height: 900)
 }

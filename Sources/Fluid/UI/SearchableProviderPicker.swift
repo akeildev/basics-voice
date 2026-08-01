@@ -68,8 +68,10 @@ struct SearchableProviderPicker: View {
 
     var body: some View {
         Button(action: { self.isShowingPopover.toggle() }) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Text(self.selectedProviderName)
+                    .basicsProse(13)
+                    .foregroundStyle(self.theme.palette.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 6)
@@ -81,11 +83,14 @@ struct SearchableProviderPicker: View {
         .popover(isPresented: self.$isShowingPopover, arrowEdge: .bottom) {
             VStack(spacing: 0) {
                 // Search field
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search providers...", text: self.$searchText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.theme.palette.tertiaryText)
+                    TextField("Search providers…", text: self.$searchText)
                         .textFieldStyle(.plain)
+                        .basicsProse(13)
+                        .foregroundStyle(self.theme.palette.primaryText)
                 }
                 .searchablePickerSearchFieldChrome()
 
@@ -97,11 +102,10 @@ struct SearchableProviderPicker: View {
                         // Built-in section
                         let builtIns = self.filteredProviders.filter { $0.isBuiltIn }
                         if !builtIns.isEmpty {
-                            Text("BUILT-IN")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
+                            Text("Built-in")
+                                .basicsMicroLabel(11)
+                                .foregroundStyle(self.theme.palette.secondaryText)
+                                .padding(.horizontal, 12)
                                 .padding(.top, 8)
                                 .padding(.bottom, 4)
 
@@ -118,11 +122,10 @@ struct SearchableProviderPicker: View {
                                     .padding(.vertical, 4)
                             }
 
-                            Text("CUSTOM")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
+                            Text("Custom")
+                                .basicsMicroLabel(11)
+                                .foregroundStyle(self.theme.palette.secondaryText)
+                                .padding(.horizontal, 12)
                                 .padding(.top, 4)
                                 .padding(.bottom, 4)
 
@@ -132,10 +135,10 @@ struct SearchableProviderPicker: View {
                         }
 
                         if self.filteredProviders.isEmpty {
-                            Text("No providers match '\(self.searchText)'")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding()
+                            Text("No providers match \u{201C}\(self.searchText)\u{201D}")
+                                .basicsProse(12)
+                                .foregroundStyle(self.theme.palette.secondaryText)
+                                .padding(14)
                         }
                     }
                 }
@@ -151,17 +154,25 @@ struct SearchableProviderPicker: View {
             self.searchText = ""
             self.isShowingPopover = false
         }) {
-            HStack {
-                Text(provider.name)
-                    .lineLimit(1)
-                Spacer()
+            HStack(spacing: 8) {
                 if provider.id == self.selectedProviderID {
                     Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(self.theme.palette.accent)
+                        .frame(width: 12)
+                } else {
+                    Color.clear.frame(width: 12, height: 1)
                 }
+
+                Text(provider.name)
+                    .basicsProse(13)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

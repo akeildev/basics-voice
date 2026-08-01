@@ -1,19 +1,24 @@
 import Foundation
 import SwiftUI
 
+/// Board `16 — Onboarding · 6 AI enhancement` (+ `· downloading`,
+/// `· generic provider`, `· card states`, `· polish try-out`).
+///
+/// Two faces on one step: the before/after table with the provider card, and —
+/// once the local model is loaded — the polish try-out that replaces the table
+/// in place.
 struct OnboardingAIEnhancementStepView: View {
     @Binding var finalText: String
 
-    let progressValue: Double
-    let glowCenter: UnitPoint
+    let railStep: Int
+    let stepCount: Int
+    let railName: String
     let language: VoiceEngineLanguage
     let shortcutDisplay: String
     let isTestReady: Bool
     let isRunning: Bool
     let isRecordingShortcut: Bool
     let shortcutRecordingMessage: String?
-    let onGlowMove: (CGPoint, CGSize) -> Void
-    let onGlowExit: () -> Void
     let onBack: () -> Void
     let onSkip: () -> Void
     let onUseAIProvider: () -> Void
@@ -22,7 +27,6 @@ struct OnboardingAIEnhancementStepView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var settings = SettingsStore.shared
 
-    @State private var hoveredButtonID: String?
     @State private var isDownloadingPrivateAI = false
     @State private var isLoadingPrivateAI = false
     @State private var isDeletingPrivateAI = false
@@ -34,11 +38,6 @@ struct OnboardingAIEnhancementStepView: View {
     @State private var selectedExampleID = Self.examples[0].id
     @State private var activeRecordingExampleID: String?
     @State private var playgroundOutputs: [String: String] = [:]
-    @Namespace private var exampleMorphNamespace
-
-    private enum ScrollTarget {
-        static let top = "ai-enhancement-top"
-    }
 
     private struct EnhancementExample: Identifiable {
         let id: String
@@ -46,36 +45,12 @@ struct OnboardingAIEnhancementStepView: View {
         let polished: String
     }
 
-    private enum ButtonTone {
-        case primary
-        case secondary
-        case destructive
-    }
-
-    private struct PillButtonConfiguration {
-        let id: String
-        let title: String
-        let systemImage: String?
-        let tone: ButtonTone
-        let width: CGFloat
-        let height: CGFloat
-        let fontSize: CGFloat
-        let isEnabled: Bool
-    }
-
-    private enum ExampleGridMetrics {
-        static let widthInset: CGFloat = 88
-        static let maxWidth: CGFloat = 900
-        static let headerLeadingInset: CGFloat = 50
-        static let columnSpacing: CGFloat = 12
-        static let rowSpacing: CGFloat = 8
-        static let rowHeight: CGFloat = 102
-        static let innerTextHeight: CGFloat = 86
-        static let iconSize: CGFloat = 40
-        static let arrowSize: CGFloat = 32
-        static let rawCornerRadius: CGFloat = 14
-        static let innerCornerRadius: CGFloat = 10
-        static let heroHeight: CGFloat = 154
+    /// Board 16 — the column grid the before/after table and the try-out share.
+    private enum ExampleGrid {
+        static let width: CGFloat = 760
+        static let columnWidth: CGFloat = 334
+        static let arrowWidth: CGFloat = 32
+        static let columnSpacing: CGFloat = 20
     }
 
     private static let examples = [
@@ -95,6 +70,8 @@ struct OnboardingAIEnhancementStepView: View {
             polished: "Grocery list:\n- banana\n- apple\n- orange"
         ),
     ]
+
+    // MARK: - Derived state
 
     private var privateAIModel: PrivateAIRegisteredModel {
         PrivateAIModelRegistry.defaultModel
@@ -144,48 +121,6 @@ struct OnboardingAIEnhancementStepView: View {
         self.isPrivateAIInstalled && PrivateAIIntegrationService.canRemoveInstalledModel(self.privateAIModel)
     }
 
-    private var primaryPrivateAIButtonTitle: String {
-        if self.isDownloadingPrivateAI {
-            return PrivateAIModelDownloadProgressText.buttonTitle(for: self.privateAISetupProgress)
-        }
-        if self.isLoadingPrivateAI {
-            return "Loading..."
-        }
-        if self.isDeletingPrivateAI {
-            return "Deleting..."
-        }
-        if !self.isPrivateAIInstalled {
-            return "Download"
-        }
-        if self.isPrivateAIAvailable, !self.shouldShowTryout {
-            return "Test FluidVoice"
-        }
-        if self.isPrivateAIAvailable, self.shouldShowTryout {
-            return "Using"
-        }
-        return "Use"
-    }
-
-    private var primaryPrivateAIButtonIcon: String? {
-        if self.isPrivateAIBusy {
-            return nil
-        }
-        if !self.isPrivateAIInstalled {
-            return "arrow.down.circle.fill"
-        }
-        if self.isPrivateAIAvailable, !self.shouldShowTryout {
-            return "sparkles"
-        }
-        if self.isPrivateAIAvailable, self.shouldShowTryout {
-            return "checkmark.circle.fill"
-        }
-        return "bolt.fill"
-    }
-
-    private var isPrimaryPrivateAIButtonEnabled: Bool {
-        self.canNavigateOrMutate && !(self.isPrivateAIAvailable && self.shouldShowTryout)
-    }
-
     private var canFinishSetup: Bool {
         self.shouldShowTryout &&
             self.isTestReady &&
@@ -203,6 +138,23 @@ struct OnboardingAIEnhancementStepView: View {
         PrivateAIModelDownloadProgressText.byteText(for: self.privateAISetupProgress)
     }
 
+    private var appDisplayName: String {
+        Bundle.main.fluidAppDisplayName
+    }
+
+    private var setupSubtitleText: String {
+        if self.hasPrivateAIProvider {
+            return "\(self.appDisplayName) can polish raw dictation locally with an optional built-in AI engine."
+        }
+        return "Optional: connect your own AI provider to polish dictation."
+    }
+
+    private var setupQuestionText: String {
+        self.hasPrivateAIProvider
+            ? "Want \(self.appDisplayName) to polish your dictation?"
+            : "Want AI polishing?"
+    }
+
     private var sectionTransition: AnyTransition {
         if self.reduceMotion {
             return .opacity
@@ -213,313 +165,480 @@ struct OnboardingAIEnhancementStepView: View {
         )
     }
 
+    // MARK: - Body
+
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                FluidOnboardingLandingBackdrop(glowCenter: self.glowCenter)
-
-                ScrollViewReader { scrollProxy in
-                    VStack(spacing: 0) {
-                        FluidOnboardingCompactProgress(value: self.progressValue)
-                            .padding(.top, 28)
-
-                        ScrollView(.vertical, showsIndicators: true) {
-                            VStack(spacing: 0) {
-                                Color.clear
-                                    .frame(height: 22)
-                                    .id(Self.ScrollTarget.top)
-
-                                self.introSection(scrollProxy: scrollProxy, containerWidth: proxy.size.width)
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-
-                        self.footer
-                    }
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .onDisappear {
-                        self.cancelPrivateAIAction()
-                    }
-                    .onChange(of: self.finalText) { _, newValue in
-                        self.captureCurrentExampleOutput(newValue)
-                    }
-                    .onChange(of: self.isRunning) { _, isRunning in
-                        if isRunning {
-                            self.activeRecordingExampleID = self.selectedExampleID
-                        }
-                    }
+        OnboardingStepShell(
+            railStep: self.railStep,
+            stepCount: self.stepCount,
+            railName: self.railName,
+            showsScrollIndicators: true
+        ) {
+            Group {
+                if self.shouldShowTryout {
+                    self.playgroundSection
+                        .transition(self.sectionTransition)
+                } else {
+                    self.setupSection
+                        .transition(self.sectionTransition)
                 }
-
-                FluidOnboardingLandingHoverTracker(
-                    onMove: self.onGlowMove,
-                    onExit: self.onGlowExit
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .accessibilityHidden(true)
+            }
+            .animation(self.reduceMotion ? nil : .easeInOut(duration: 0.28), value: self.shouldShowTryout)
+        } footer: {
+            self.footer
+        }
+        .onDisappear {
+            self.cancelPrivateAIAction()
+        }
+        .onChange(of: self.finalText) { _, newValue in
+            self.captureCurrentExampleOutput(newValue)
+        }
+        .onChange(of: self.isRunning) { _, isRunning in
+            if isRunning {
+                self.activeRecordingExampleID = self.selectedExampleID
             }
         }
     }
 
-    private func introSection(scrollProxy: ScrollViewProxy, containerWidth: CGFloat) -> some View {
-        Group {
-            if self.shouldShowTryout {
-                self.playgroundSection(containerWidth: containerWidth)
-                    .transition(self.sectionTransition)
-            } else {
-                self.setupSection(scrollProxy: scrollProxy, containerWidth: containerWidth)
-                    .transition(self.sectionTransition)
-            }
-        }
-        .animation(self.reduceMotion ? nil : .easeInOut(duration: 0.28), value: self.shouldShowTryout)
-        .frame(maxWidth: .infinity)
-    }
+    // MARK: - Setup face
 
-    private func setupSection(scrollProxy: ScrollViewProxy, containerWidth: CGFloat) -> some View {
+    private var setupSection: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                FluidOnboardingCompactAppIconMark(size: 52)
-                    .padding(.bottom, 18)
-
-                Text("One more thing...")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 10)
-
-                Text(self.setupSubtitleText)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.64))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
-                    .frame(maxWidth: 700)
-                    .padding(.horizontal, 32)
-            }
-            .frame(height: ExampleGridMetrics.heroHeight, alignment: .top)
-            .padding(.bottom, 20)
-
-            self.examplesPanel
-                .frame(width: self.exampleGridWidth(containerWidth: containerWidth))
-                .padding(.bottom, 18)
-
-            Text(self.setupQuestionText)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
-                .padding(.bottom, 12)
-
-            self.setupChoiceCard(scrollProxy: scrollProxy)
-                .frame(width: min(containerWidth - 92, 840))
-                .padding(.bottom, 12)
-
-            Text(self.setupFootnoteText)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.46))
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var setupSubtitleText: String {
-        if self.hasPrivateAIProvider {
-            return "FluidVoice can polish raw dictation locally with an optional built-in AI engine."
-        }
-        return "Optional: connect your own AI provider to polish dictation."
-    }
-
-    private var setupQuestionText: String {
-        self.hasPrivateAIProvider ? "Want FluidVoice to polish your dictation?" : "Want AI polishing?"
-    }
-
-    private var setupFootnoteText: String {
-        if self.shouldShowTryout {
-            return "Try it below before finishing setup."
-        }
-        return "You can change this later in AI Enhancement settings."
-    }
-
-    private func playgroundSection(containerWidth: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                FluidOnboardingCompactAppIconMark(size: 52)
-                    .padding(.bottom, 18)
-
-                VStack(spacing: 8) {
-                    Text("Let's polish your text.")
-                        .font(.system(size: 32, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.74)
-
-                    Text("Choose an example, press \(self.shortcutDisplay), then dictate it naturally.")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.62))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.82)
-                }
-                .padding(.horizontal, 32)
-            }
-            .frame(height: ExampleGridMetrics.heroHeight, alignment: .top)
-            .padding(.bottom, 22)
-
-            self.playgroundExamplesPanel
-                .frame(width: self.exampleGridWidth(containerWidth: containerWidth))
-                .padding(.bottom, 12)
-
-            Text(self.isTestReady ? "Looks good. Finish setup when you're ready." : "The polished result will appear on the selected row.")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.46))
+            Text("One more thing...")
+                .basicsLabel(38)
+                .foregroundStyle(BasicsTokens.Ink.foreground)
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
+                .minimumScaleFactor(0.74)
+
+            Text(self.setupSubtitleText)
+                .basicsProse(16)
+                .foregroundStyle(BasicsTokens.Ink.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 12)
+
+            self.examplesTable
+                .padding(.top, 20)
+
+            Text(self.setupQuestionText)
+                .basicsLabel(20)
+                .foregroundStyle(BasicsTokens.Ink.foreground)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.74)
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            self.setupChoiceCard
+
+            Text("You can change this later in AI enhancements settings.")
+                .basicsProse(14)
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .padding(.top, 12)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: ExampleGrid.width)
     }
 
-    private func exampleGridWidth(containerWidth: CGFloat) -> CGFloat {
-        min(max(containerWidth - ExampleGridMetrics.widthInset, 360), ExampleGridMetrics.maxWidth)
+    private var examplesTable: some View {
+        VStack(spacing: 0) {
+            self.exampleGridHeader(leftTitle: "Raw dictation (before)", rightTitle: "Polished (after)")
+                .padding(.bottom, 10)
+
+            ForEach(Self.examples) { example in
+                HStack(alignment: .center, spacing: ExampleGrid.columnSpacing) {
+                    Text(example.raw)
+                        .basicsProse(13)
+                        .foregroundStyle(BasicsTokens.Ink.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: ExampleGrid.columnWidth, alignment: .leading)
+
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(BasicsTokens.Ink.faint)
+                        .frame(width: ExampleGrid.arrowWidth)
+
+                    Text(example.polished)
+                        .basicsProse(13)
+                        .foregroundStyle(BasicsTokens.Ink.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: ExampleGrid.columnWidth, alignment: .leading)
+                }
+                .padding(.vertical, 9)
+                .frame(width: ExampleGrid.width)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(BasicsTokens.Surface.border)
+                        .frame(height: 1)
+                }
+            }
+        }
+        .frame(width: ExampleGrid.width)
     }
 
     private func exampleGridHeader(leftTitle: String, rightTitle: String) -> some View {
-        HStack(spacing: ExampleGridMetrics.columnSpacing) {
+        HStack(spacing: ExampleGrid.columnSpacing) {
             Text(leftTitle)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.48))
-                .frame(maxWidth: .infinity, alignment: .center)
+                .basicsMicroLabel()
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .frame(width: ExampleGrid.columnWidth, alignment: .leading)
 
             Color.clear
-                .frame(width: ExampleGridMetrics.arrowSize, height: 1)
+                .frame(width: ExampleGrid.arrowWidth, height: 1)
 
             Text(rightTitle)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(FluidOnboardingLandingColors.blue.opacity(0.84))
-                .frame(maxWidth: .infinity, alignment: .center)
+                .basicsMicroLabel()
+                .foregroundStyle(BasicsTokens.Semantic.brand)
+                .frame(width: ExampleGrid.columnWidth, alignment: .leading)
         }
-        .padding(.leading, ExampleGridMetrics.headerLeadingInset)
+        .frame(width: ExampleGrid.width)
     }
 
-    private var examplesPanel: some View {
-        VStack(spacing: ExampleGridMetrics.rowSpacing) {
-            self.exampleGridHeader(leftTitle: "Raw dictation (before)", rightTitle: "Polished (after)")
+    @ViewBuilder
+    private var setupChoiceCard: some View {
+        if self.hasPrivateAIProvider {
+            self.privateAIProviderCard
+        } else {
+            self.genericAIProviderCard
+        }
+    }
 
-            ForEach(Self.examples) { example in
-                self.exampleRow(example)
+    // MARK: Generic provider card
+
+    private var genericAIProviderCard: some View {
+        OnboardingCard(
+            padding: 0,
+            shadow: BasicsShadow(color: BasicsTokens.Ink.foreground.opacity(0.06), radius: 16, y: 10)
+        ) {
+            HStack(alignment: .center, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("AI provider")
+                        .basicsLabel(19)
+                        .foregroundStyle(BasicsTokens.Ink.foreground)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    Text("Connect your own provider to polish dictation.")
+                        .basicsProse(14)
+                        .foregroundStyle(BasicsTokens.Ink.muted)
+
+                    HStack(spacing: 16) {
+                        self.modelFact("key", "Uses your API key")
+                        self.modelFact("slider.horizontal.3", "Configurable later")
+                        self.modelFact("network", "Cloud or local")
+                    }
+                    .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                OnboardingActionButton(
+                    title: "Set up provider",
+                    systemImage: "arrow.up.right",
+                    tone: .primary,
+                    height: 40,
+                    horizontalPadding: 14,
+                    labelSize: 14,
+                    iconSize: 11,
+                    width: 168,
+                    cornerRadius: BasicsTokens.Radius.md
+                ) {
+                    self.cancelPrivateAIAction()
+                    self.onUseAIProvider()
+                }
+                .disabled(!self.canNavigateOrMutate)
+                .keyboardShortcut(.defaultAction)
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
+        .frame(width: ExampleGrid.width)
     }
 
-    private func exampleRow(_ example: EnhancementExample) -> some View {
-        HStack(alignment: .center, spacing: ExampleGridMetrics.columnSpacing) {
-            HStack(spacing: ExampleGridMetrics.columnSpacing) {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(FluidOnboardingLandingColors.blue)
-                    .frame(width: ExampleGridMetrics.iconSize, height: ExampleGridMetrics.iconSize)
-                    .background(
-                        Circle()
-                            .fill(FluidOnboardingLandingColors.blue.opacity(0.12))
-                            .overlay(
-                                Circle()
-                                    .stroke(FluidOnboardingLandingColors.blue.opacity(0.22), lineWidth: 1)
-                            )
-                    )
+    // MARK: Private AI card
 
-                Text(example.raw)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.52))
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.80)
+    private var privateAIProviderCard: some View {
+        OnboardingCard(
+            padding: 0,
+            shadow: BasicsShadow(color: BasicsTokens.Ink.foreground.opacity(0.06), radius: 16, y: 10)
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            Text(self.privateAIProviderName)
+                                .basicsLabel(19)
+                                .foregroundStyle(BasicsTokens.Ink.foreground)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+
+                            OnboardingBadge(text: "Experimental", tone: .warning)
+
+                            Text("Powered by \(self.privateAIModelDisplayName)")
+                                .basicsMono(11)
+                                .foregroundStyle(BasicsTokens.Ink.faint)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                        }
+
+                        Text("Trained on 100K+ dictation data points to polish your words.")
+                            .basicsProse(14)
+                            .foregroundStyle(BasicsTokens.Ink.muted)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+
+                        HStack(spacing: 16) {
+                            self.modelFact("lock", "Runs locally. No API key.")
+                            self.modelFact("internaldrive", "Download size \(self.privateAIModelSizeText)")
+                            self.modelFact("timer", "May be slower on older Macs.")
+                        }
+                        .padding(.top, 4)
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 10)
-                    .frame(height: ExampleGridMetrics.innerTextHeight, alignment: .center)
-                    .background(
-                        RoundedRectangle(cornerRadius: ExampleGridMetrics.innerCornerRadius, style: .continuous)
-                            .fill(Color.white.opacity(0.040))
-                    )
+
+                    if !self.showsProgressBelowFacts {
+                        self.privateAIActionRow
+                    }
+                }
+
+                if self.showsProgressBelowFacts {
+                    self.privateAIActionRow
+                        .padding(.top, 14)
+                }
+
+                self.privateAIStatusStrip
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .frame(height: ExampleGridMetrics.rowHeight)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: ExampleGridMetrics.rawCornerRadius, style: .continuous)
-                    .fill(Color.white.opacity(0.038))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ExampleGridMetrics.rawCornerRadius, style: .continuous)
-                            .stroke(Color.white.opacity(0.070), lineWidth: 1)
-                    )
-            )
-            .matchedGeometryEffect(
-                id: "example-raw-\(example.id)",
-                in: self.exampleMorphNamespace,
-                properties: .frame,
-                isSource: !self.shouldShowTryout
-            )
-
-            Image(systemName: "arrow.right")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.80))
-                .frame(width: ExampleGridMetrics.arrowSize, height: ExampleGridMetrics.arrowSize)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.065))
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                        )
-                )
-                .matchedGeometryEffect(
-                    id: "example-arrow-\(example.id)",
-                    in: self.exampleMorphNamespace,
-                    properties: .frame,
-                    isSource: !self.shouldShowTryout
-                )
-
-            self.polishedExampleSurface(example)
-                .matchedGeometryEffect(
-                    id: "example-output-\(example.id)",
-                    in: self.exampleMorphNamespace,
-                    properties: .frame,
-                    isSource: !self.shouldShowTryout
-                )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
         }
+        .frame(width: ExampleGrid.width)
     }
 
-    private var playgroundExamplesPanel: some View {
-        VStack(spacing: ExampleGridMetrics.rowSpacing) {
-            self.exampleGridHeader(leftTitle: "Try saying this", rightTitle: "Polished output")
+    /// While the model is downloading the board moves the action row under the
+    /// facts so the progress bar can run the full width of the card.
+    private var showsProgressBelowFacts: Bool {
+        self.isDownloadingPrivateAI
+    }
 
-            ForEach(Self.examples) { example in
-                self.playgroundExampleRow(example)
+    private var privateAIActionRow: some View {
+        HStack(spacing: 10) {
+            self.primaryPrivateAIButton
+
+            if self.isPrivateAIInstalled, self.isPrivateAIAvailable, !self.isPrivateAIBusy {
+                OnboardingActionButton(
+                    title: "Test \(self.appDisplayName)",
+                    systemImage: "sparkles",
+                    tone: .secondary,
+                    height: 40,
+                    horizontalPadding: 14,
+                    labelSize: 14,
+                    iconSize: 12,
+                    cornerRadius: BasicsTokens.Radius.md,
+                    action: self.activatePrivateAI
+                )
+                .disabled(!self.canNavigateOrMutate)
+                .keyboardShortcut(.defaultAction)
+            }
+
+            if self.canDeletePrivateAIModel {
+                OnboardingActionButton(
+                    title: "Delete",
+                    systemImage: "trash",
+                    tone: .destructive,
+                    height: 40,
+                    horizontalPadding: 14,
+                    labelSize: 14,
+                    iconSize: 12,
+                    width: 112,
+                    cornerRadius: BasicsTokens.Radius.md,
+                    action: self.deletePrivateAIModel
+                )
+                .disabled(!self.canNavigateOrMutate)
             }
         }
     }
 
-    private func polishedExampleSurface(_ example: EnhancementExample) -> some View {
-        let shape = RoundedRectangle(cornerRadius: ExampleGridMetrics.rawCornerRadius, style: .continuous)
+    private var primaryPrivateAIButton: some View {
+        let isActive = self.isPrivateAIInstalled && self.isPrivateAIAvailable
 
-        return ZStack(alignment: .topLeading) {
-            Text(example.polished)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.84))
-                .lineLimit(5)
-                .minimumScaleFactor(0.80)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+        return OnboardingActionButton(
+            title: self.primaryPrivateAIButtonTitle,
+            systemImage: self.primaryPrivateAIButtonIcon,
+            tone: isActive && !self.isPrivateAIBusy ? .soft : .primary,
+            height: 40,
+            horizontalPadding: 14,
+            labelSize: 14,
+            iconSize: 12,
+            width: 150,
+            cornerRadius: BasicsTokens.Radius.md
+        ) {
+            self.handlePrivateAIPrimaryAction()
         }
-        .frame(height: ExampleGridMetrics.rowHeight, alignment: .topLeading)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            shape
-                .fill(FluidOnboardingLandingColors.blue.opacity(0.060))
-                .overlay(
-                    shape.stroke(FluidOnboardingLandingColors.blue.opacity(0.42), lineWidth: 1.2)
-                )
-        )
+        .disabled(!self.isPrimaryPrivateAIButtonEnabled)
+        .keyboardShortcut(isActive ? nil : KeyboardShortcut.defaultAction)
+    }
+
+    private var primaryPrivateAIButtonTitle: String {
+        if self.isDownloadingPrivateAI {
+            return PrivateAIModelDownloadProgressText.buttonTitle(for: self.privateAISetupProgress)
+        }
+        if self.isLoadingPrivateAI {
+            return "Loading..."
+        }
+        if self.isDeletingPrivateAI {
+            return "Deleting..."
+        }
+        if !self.isPrivateAIInstalled {
+            return "Download"
+        }
+        return self.isPrivateAIAvailable ? "Using" : "Use"
+    }
+
+    private var primaryPrivateAIButtonIcon: String? {
+        if self.isPrivateAIBusy {
+            return nil
+        }
+        if !self.isPrivateAIInstalled {
+            return "arrow.down.circle.fill"
+        }
+        return self.isPrivateAIAvailable ? "checkmark.circle.fill" : "bolt.fill"
+    }
+
+    private var isPrimaryPrivateAIButtonEnabled: Bool {
+        self.canNavigateOrMutate && !(self.isPrivateAIInstalled && self.isPrivateAIAvailable)
+    }
+
+    /// The helper line under the action row. Every string here is read off live
+    /// service state — board `· card states` documents the full set.
+    @ViewBuilder
+    private var privateAIStatusStrip: some View {
+        if self.isDownloadingPrivateAI {
+            VStack(alignment: .leading, spacing: 7) {
+                OnboardingProgressTrack(fraction: self.privateAISetupProgress?.fractionCompleted)
+
+                Text(self.privateAISetupStatusText ?? "Downloading. This can take a few minutes.")
+                    .basicsProse(13)
+                    .foregroundStyle(BasicsTokens.Ink.muted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                if let byteText = self.privateAIDownloadByteText {
+                    Text(byteText)
+                        .basicsMono(11)
+                        .foregroundStyle(BasicsTokens.Ink.faint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+            }
+            .padding(.top, 12)
+            .transition(self.reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+        } else if let message = self.privateAISetupErrorMessage {
+            Text(message)
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Semantic.danger)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+        } else if self.isLoadingPrivateAI {
+            Text(self.privateAIDownloadByteText ?? "Loading \(self.privateAIModelDisplayName)…")
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Ink.muted)
+                .padding(.top, 10)
+        } else if !self.isPrivateAIInstalled {
+            Text(self.privateAIModelSizeText)
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .padding(.top, 10)
+        } else if self.isPrivateAIAvailable {
+            Text("The polish try-out replaces the examples table once this is active.")
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .padding(.top, 10)
+        } else {
+            Text("Loaded on this Mac. Activate it to polish dictation.")
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .padding(.top, 10)
+        }
+    }
+
+    private func modelFact(_ systemImage: String, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(BasicsTokens.Ink.faint)
+
+            Text(text)
+                .basicsLabel(12)
+                .foregroundStyle(BasicsTokens.Ink.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+        }
+    }
+
+    // MARK: - Try-out face
+
+    private var playgroundSection: some View {
+        VStack(spacing: 0) {
+            Text("Let's polish your text.")
+                .basicsLabel(38)
+                .foregroundStyle(BasicsTokens.Ink.foreground)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.74)
+
+            Text("Choose an example, press \(self.shortcutDisplay), then dictate it naturally.")
+                .basicsProse(16)
+                .foregroundStyle(BasicsTokens.Ink.muted)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .padding(.top, 12)
+
+            if let message = self.trimmedRecordingMessage {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(BasicsTokens.Semantic.warning)
+
+                    Text(message)
+                        .basicsProse(14)
+                        .foregroundStyle(BasicsTokens.Ink.muted)
+                        .lineLimit(1)
+                }
+                .padding(.top, 10)
+            }
+
+            VStack(spacing: 0) {
+                self.exampleGridHeader(leftTitle: "Try saying this", rightTitle: "Polished output")
+                    .padding(.bottom, 10)
+
+                ForEach(Self.examples) { example in
+                    self.playgroundExampleRow(example)
+                }
+            }
+            .padding(.top, 20)
+
+            Text(self.isTestReady
+                ? "Looks good. Finish setup when you're ready."
+                : "The polished result will appear on the selected row.")
+                .basicsProse(14)
+                .foregroundStyle(BasicsTokens.Ink.faint)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .padding(.top, 22)
+        }
+        .frame(width: ExampleGrid.width)
+    }
+
+    private var trimmedRecordingMessage: String? {
+        guard self.isRecordingShortcut,
+              let message = self.shortcutRecordingMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty
+        else {
+            return nil
+        }
+        return message
     }
 
     private func playgroundExampleRow(_ example: EnhancementExample) -> some View {
@@ -527,602 +646,144 @@ struct OnboardingAIEnhancementStepView: View {
         let outputText = self.playgroundOutputs[example.id] ?? ""
         let hasOutput = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let isListening = self.activeRecordingExampleID == example.id && self.isRunning
-        let allowsDecorativeShadow = !self.reduceMotion
-        let rawShadowRadius: CGFloat = allowsDecorativeShadow && isSelected ? 13 : 0
-        let arrowShadowRadius: CGFloat = allowsDecorativeShadow && isListening ? 12 : 0
-        let outputShadowRadius: CGFloat = allowsDecorativeShadow && (isSelected || isListening) ? (isSelected ? 14 : 8) : 0
-        let outputShadowOpacity: Double = allowsDecorativeShadow ? (isListening ? 0.24 : (isSelected ? 0.16 : 0)) : 0
-        let rawShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        let outputShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
 
-        return HStack(alignment: .center, spacing: ExampleGridMetrics.columnSpacing) {
-            Button {
-                self.selectExample(example)
-            } label: {
-                HStack(spacing: ExampleGridMetrics.columnSpacing) {
-                    Image(systemName: isSelected ? "mic.circle.fill" : "mic.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(FluidOnboardingLandingColors.blue)
-                        .frame(width: ExampleGridMetrics.iconSize, height: ExampleGridMetrics.iconSize)
-                        .background(
-                            Circle()
-                                .fill(FluidOnboardingLandingColors.blue.opacity(isSelected ? 0.22 : 0.12))
-                                .overlay(
-                                    Circle()
-                                        .stroke(FluidOnboardingLandingColors.blue.opacity(isSelected ? 0.48 : 0.22), lineWidth: 1)
-                                )
-                        )
-
-                    Text(example.raw)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(isSelected ? 0.76 : 0.52))
-                        .lineLimit(4)
-                        .minimumScaleFactor(0.80)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 10)
-                        .frame(height: ExampleGridMetrics.innerTextHeight, alignment: .center)
-                        .background(
-                            RoundedRectangle(cornerRadius: ExampleGridMetrics.innerCornerRadius, style: .continuous)
-                                .fill(Color.white.opacity(isSelected ? 0.062 : 0.040))
-                        )
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
-                .frame(height: ExampleGridMetrics.rowHeight)
-                .frame(maxWidth: .infinity)
-                .background(
-                    rawShape
-                        .fill(Color.white.opacity(isSelected ? 0.054 : 0.038))
-                        .overlay(
-                            rawShape
-                                .stroke(isSelected ? FluidOnboardingLandingColors.blue.opacity(0.48) : Color.white.opacity(0.070), lineWidth: isSelected ? 1.2 : 1)
-                        )
-                        .shadow(color: FluidOnboardingLandingColors.blue.opacity(allowsDecorativeShadow && isSelected ? 0.13 : 0), radius: rawShadowRadius, x: 0, y: 4)
+        return HStack(alignment: .center, spacing: ExampleGrid.columnSpacing) {
+            Text(example.raw)
+                .basicsProse(13)
+                .foregroundStyle(
+                    isSelected ? BasicsTokens.Semantic.brand : BasicsTokens.Ink.muted
                 )
-                .contentShape(rawShape)
-            }
-            .matchedGeometryEffect(
-                id: "example-raw-\(example.id)",
-                in: self.exampleMorphNamespace,
-                properties: .frame,
-                isSource: self.shouldShowTryout
-            )
-            .buttonStyle(.plain)
-            .focusable(false)
-            .contentShape(rawShape)
-            .disabled(self.isPrivateAIBusy)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: ExampleGrid.columnWidth, alignment: .leading)
 
-            Image(systemName: isSelected && self.isRunning ? "waveform" : "arrow.right")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white.opacity(0.80))
-                .frame(width: ExampleGridMetrics.arrowSize, height: ExampleGridMetrics.arrowSize)
-                .background(
-                    Circle()
-                        .fill(isListening ? FluidOnboardingLandingColors.blue.opacity(0.22) : Color.white.opacity(isSelected ? 0.10 : 0.065))
-                        .overlay(
-                            Circle()
-                                .stroke(isSelected ? FluidOnboardingLandingColors.blue.opacity(0.28) : Color.white.opacity(0.10), lineWidth: 1)
-                        )
-                        .shadow(color: FluidOnboardingLandingColors.blue.opacity(allowsDecorativeShadow && isListening ? 0.30 : 0), radius: arrowShadowRadius, x: 0, y: 0)
+            Image(systemName: isListening ? "waveform" : "arrow.right")
+                .font(.system(size: 12, weight: isListening ? .semibold : .regular))
+                .foregroundStyle(
+                    isListening ? BasicsTokens.Semantic.brand : BasicsTokens.Ink.faint
                 )
-                .matchedGeometryEffect(
-                    id: "example-arrow-\(example.id)",
-                    in: self.exampleMorphNamespace,
-                    properties: .frame,
-                    isSource: self.shouldShowTryout
-                )
+                .frame(width: ExampleGrid.arrowWidth)
 
-            ZStack(alignment: .topLeading) {
-                if hasOutput {
-                    Text(outputText)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.86))
-                        .lineLimit(5)
-                        .minimumScaleFactor(0.80)
-                        .padding(.leading, 16)
-                        .padding(.trailing, 42)
-                        .padding(.vertical, 12)
-                } else if isListening {
-                    HStack(spacing: 8) {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(FluidOnboardingLandingColors.blue)
-
+            HStack(alignment: .top, spacing: 8) {
+                Group {
+                    if hasOutput {
+                        Text(outputText)
+                            .basicsProse(13)
+                            .foregroundStyle(BasicsTokens.Ink.foreground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if isListening {
                         Text("Listening...")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.74))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                } else if isSelected {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Dictate here.")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.36))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-
+                            .basicsProse(13)
+                            .foregroundStyle(BasicsTokens.Semantic.brand)
+                    } else {
                         Text("Press \(self.shortcutDisplay) and speak this example.")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.28))
+                            .basicsProse(13)
+                            .foregroundStyle(BasicsTokens.Ink.faint)
                             .lineLimit(1)
                             .minimumScaleFactor(0.78)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if hasOutput {
                     Button {
                         self.clearExampleOutput(example)
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.42))
-                            .frame(width: 28, height: 28)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(BasicsTokens.Ink.faint)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .focusable(false)
-                    .contentShape(Circle())
-                    .padding(.top, 5)
-                    .padding(.trailing, 6)
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .focusEffectDisabled()
+                    .accessibilityLabel("Clear polished output")
                 }
             }
-            .frame(height: ExampleGridMetrics.rowHeight, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                outputShape
-                    .fill(FluidOnboardingLandingColors.blue.opacity(isListening ? 0.105 : (isSelected ? 0.072 : 0.040)))
-                    .overlay(
-                        outputShape
-                            .stroke(FluidOnboardingLandingColors.blue.opacity(isListening ? 0.72 : (isSelected ? 0.54 : 0.22)), lineWidth: isSelected ? 1.3 : 1)
-                    )
-                    .shadow(color: FluidOnboardingLandingColors.blue.opacity(outputShadowOpacity), radius: outputShadowRadius, x: 0, y: 5)
-            )
-            .contentShape(outputShape)
-            .onTapGesture {
-                self.selectExample(example)
+            .frame(width: ExampleGrid.columnWidth, alignment: .leading)
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 8)
+        .frame(width: ExampleGrid.width + 16)
+        .background(shape.fill(isSelected ? BasicsTokens.Semantic.brandSoft : Color.clear))
+        .overlay(alignment: .top) {
+            if !isSelected {
+                Rectangle()
+                    .fill(BasicsTokens.Surface.border)
+                    .frame(height: 1)
+                    .padding(.horizontal, 8)
             }
-            .matchedGeometryEffect(
-                id: "example-output-\(example.id)",
-                in: self.exampleMorphNamespace,
-                properties: .frame,
-                isSource: self.shouldShowTryout
-            )
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            self.selectExample(example)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Try example. \(example.raw)")
     }
 
-    @ViewBuilder
-    private func setupChoiceCard(scrollProxy: ScrollViewProxy) -> some View {
-        if self.hasPrivateAIProvider {
-            self.privateAIProviderCard(scrollProxy: scrollProxy)
-        } else {
-            self.genericAIProviderCard
-        }
-    }
-
-    private var genericAIProviderCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        let isHovered = self.hoveredButtonID == "generic-ai-provider" && self.canNavigateOrMutate
-
-        return HStack(alignment: .center, spacing: 18) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("AI provider")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-
-                Label("Connect your own provider to polish dictation.", systemImage: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.74))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-
-                HStack(spacing: 13) {
-                    self.modelFact("key.fill", "Uses your API key")
-                    self.modelFact("slider.horizontal.3", "Configurable later")
-                    self.modelFact("network", "Cloud or local")
-                }
-            }
-
-            Spacer(minLength: 12)
-
-            self.pillButton(
-                PillButtonConfiguration(
-                    id: "generic-ai-provider",
-                    title: "Set up provider",
-                    systemImage: "arrow.up.right",
-                    tone: .primary,
-                    width: 168,
-                    height: 40,
-                    fontSize: 13,
-                    isEnabled: self.canNavigateOrMutate
-                ),
-                action: {
-                    self.cancelPrivateAIAction()
-                    self.onUseAIProvider()
-                }
-            )
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .background(
-            shape
-                .fill(Color.white.opacity(isHovered ? 0.070 : 0.052))
-                .overlay(shape.stroke(FluidOnboardingLandingColors.blue.opacity(isHovered ? 0.42 : 0.26), lineWidth: 1))
-                .shadow(color: FluidOnboardingLandingColors.blue.opacity(isHovered ? 0.18 : 0.08), radius: isHovered ? 18 : 10, x: 0, y: 5)
-        )
-        .onHover { isHovered in
-            self.setHoveredButton(isHovered ? "generic-ai-provider" : nil)
-        }
-    }
-
-    private func privateAIProviderCard(scrollProxy: ScrollViewProxy) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        let isHovered = self.hoveredButtonID == "private-ai-provider" && self.canNavigateOrMutate
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text(self.privateAIProviderName)
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-
-                        Text("Experimental")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.26))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(
-                                Capsule()
-                                    .fill(Color(red: 1.0, green: 0.72, blue: 0.26).opacity(0.14))
-                            )
-                    }
-
-                    Text("Powered by \(self.privateAIModelDisplayName)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.42))
-                        .lineLimit(1)
-
-                    Label("Trained on 100K+ dictation data points to polish your words.", systemImage: "sparkles")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.74))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 10) {
-                    if self.isPrimaryPrivateAIButtonEnabled {
-                        self.primaryPrivateAIButton(scrollProxy: scrollProxy)
-                            .keyboardShortcut(.defaultAction)
-                    } else {
-                        self.primaryPrivateAIButton(scrollProxy: scrollProxy)
-                    }
-
-                    if self.canDeletePrivateAIModel {
-                        self.pillButton(
-                            PillButtonConfiguration(
-                                id: "private-ai-provider-delete",
-                                title: "Delete",
-                                systemImage: "trash.fill",
-                                tone: .destructive,
-                                width: 112,
-                                height: 40,
-                                fontSize: 13,
-                                isEnabled: self.canNavigateOrMutate
-                            ),
-                            action: self.deletePrivateAIModel
-                        )
-                    }
-                }
-            }
-
-            HStack(spacing: 13) {
-                self.modelFact("lock.fill", "Runs locally. No API key.")
-                self.modelFact("internaldrive", "Download size \(self.privateAIModelSizeText)")
-                self.modelFact("timer", "May be slower on older Macs.")
-            }
-
-            if self.isDownloadingPrivateAI {
-                self.privateAIDownloadProgressView
-            }
-
-            if let message = self.privateAISetupErrorMessage {
-                Text(message)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.red.opacity(0.82))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.74)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .background(
-            shape
-                .fill(Color.white.opacity(isHovered ? 0.070 : 0.052))
-                .overlay(shape.stroke(FluidOnboardingLandingColors.blue.opacity(isHovered ? 0.42 : 0.26), lineWidth: 1))
-                .shadow(color: FluidOnboardingLandingColors.blue.opacity(isHovered ? 0.18 : 0.08), radius: isHovered ? 18 : 10, x: 0, y: 5)
-        )
-        .onHover { isHovered in
-            self.setHoveredButton(isHovered ? "private-ai-provider" : nil)
-        }
-    }
-
-    private var privateAIDownloadProgressView: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Text(self.privateAISetupStatusText ?? "Downloading. This can take a few minutes.")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.66))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-
-                Spacer(minLength: 8)
-
-                if let byteText = self.privateAIDownloadByteText {
-                    Text(byteText)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.42))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.74)
-                }
-            }
-
-            if let fraction = self.privateAISetupProgress?.fractionCompleted {
-                ProgressView(value: fraction)
-                    .progressViewStyle(.linear)
-                    .tint(FluidOnboardingLandingColors.blue)
-                    .frame(height: 4)
-            } else {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .controlSize(.small)
-                    .tint(FluidOnboardingLandingColors.blue)
-                    .frame(height: 4)
-            }
-        }
-        .padding(.top, 2)
-        .transition(self.reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
-    }
-
-    private func primaryPrivateAIButton(scrollProxy: ScrollViewProxy) -> some View {
-        self.pillButton(
-            PillButtonConfiguration(
-                id: "private-ai-provider",
-                title: self.primaryPrivateAIButtonTitle,
-                systemImage: self.primaryPrivateAIButtonIcon,
-                tone: .primary,
-                width: 150,
-                height: 40,
-                fontSize: 13,
-                isEnabled: self.isPrimaryPrivateAIButtonEnabled
-            ),
-            action: {
-                self.handlePrivateAIPrimaryAction(scrollProxy: scrollProxy)
-            }
-        )
-    }
-
-    private func modelFact(_ systemImage: String, _ text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(FluidOnboardingLandingColors.blue.opacity(0.86))
-
-            Text(text)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.58))
-                .lineLimit(1)
-                .minimumScaleFactor(0.76)
-        }
-    }
+    // MARK: - Footer
 
     private var footer: some View {
-        HStack {
-            self.pillButton(
-                PillButtonConfiguration(
-                    id: "back",
-                    title: "Back",
-                    systemImage: nil,
-                    tone: .secondary,
-                    width: 132,
-                    height: 48,
-                    fontSize: 16,
-                    isEnabled: self.canNavigateOrMutate
-                ),
-                action: {
-                    self.cancelPrivateAIAction()
-                    self.onBack()
-                }
-            )
-            .keyboardShortcut(.cancelAction)
+        OnboardingFooterBar(canGoBack: self.canNavigateOrMutate, onBack: {
+            self.cancelPrivateAIAction()
+            self.onBack()
+        }) {
+            HStack(spacing: 12) {
+                if self.shouldShowTryout {
+                    OnboardingActionButton(
+                        title: "Skip",
+                        tone: .secondary,
+                        labelColor: BasicsTokens.Ink.muted
+                    ) {
+                        self.cancelPrivateAIAction()
+                        self.onFinishSetup()
+                    }
+                    .disabled(!self.canNavigateOrMutate)
 
-            Spacer()
+                    OnboardingActionButton(
+                        title: "Finish setup",
+                        systemImage: "checkmark",
+                        tone: .primary,
+                        height: 48,
+                        horizontalPadding: 28
+                    ) {
+                        self.cancelPrivateAIAction()
+                        self.onFinishSetup()
+                    }
+                    .disabled(!self.canFinishSetup)
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    OnboardingActionButton(
+                        title: self.hasPrivateAIProvider ? "Use my own AI provider" : "Set up AI provider",
+                        systemImage: "arrow.up.right",
+                        tone: .secondary,
+                        height: 48,
+                        horizontalPadding: 28,
+                        iconSize: 12
+                    ) {
+                        self.cancelPrivateAIAction()
+                        self.onUseAIProvider()
+                    }
+                    .disabled(!self.canNavigateOrMutate)
 
-            if self.shouldShowTryout {
-                HStack(spacing: 12) {
-                    self.skipTryoutButton
-
-                    self.finishButton
-                        .keyboardShortcut(.defaultAction)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    self.providerChoiceButton
-
-                    self.skipButton
+                    OnboardingActionButton(
+                        title: "Skip for now",
+                        tone: .secondary,
+                        height: 48,
+                        horizontalPadding: 28,
+                        labelColor: BasicsTokens.Ink.muted
+                    ) {
+                        self.cancelPrivateAIAction()
+                        self.onSkip()
+                    }
+                    .disabled(!self.canNavigateOrMutate)
                 }
             }
         }
-        .padding(.horizontal, 30)
-        .padding(.bottom, 24)
     }
 
-    private var providerChoiceButton: some View {
-        self.pillButton(
-            PillButtonConfiguration(
-                id: "ai-provider",
-                title: self.hasPrivateAIProvider ? "Use my own AI provider" : "Set up AI provider",
-                systemImage: "arrow.up.right",
-                tone: .secondary,
-                width: 280,
-                height: 48,
-                fontSize: 15,
-                isEnabled: self.canNavigateOrMutate
-            ),
-            action: {
-                self.cancelPrivateAIAction()
-                self.onUseAIProvider()
-            }
-        )
-    }
-
-    private var skipButton: some View {
-        self.pillButton(
-            PillButtonConfiguration(
-                id: "ai-skip",
-                title: "Skip for now",
-                systemImage: nil,
-                tone: .secondary,
-                width: 132,
-                height: 48,
-                fontSize: 16,
-                isEnabled: self.canNavigateOrMutate
-            ),
-            action: {
-                self.cancelPrivateAIAction()
-                self.onSkip()
-            }
-        )
-    }
-
-    private var skipTryoutButton: some View {
-        self.pillButton(
-            PillButtonConfiguration(
-                id: "ai-skip-tryout",
-                title: "Skip",
-                systemImage: nil,
-                tone: .secondary,
-                width: 132,
-                height: 48,
-                fontSize: 16,
-                isEnabled: self.canNavigateOrMutate
-            ),
-            action: {
-                self.cancelPrivateAIAction()
-                self.onFinishSetup()
-            }
-        )
-    }
-
-    private var finishButton: some View {
-        self.pillButton(
-            PillButtonConfiguration(
-                id: "ai-finish",
-                title: "Finish setup",
-                systemImage: "checkmark",
-                tone: .primary,
-                width: 164,
-                height: 48,
-                fontSize: 16,
-                isEnabled: self.canFinishSetup
-            ),
-            action: {
-                self.cancelPrivateAIAction()
-                self.onFinishSetup()
-            }
-        )
-    }
-
-    private func pillButton(
-        _ configuration: PillButtonConfiguration,
-        action: @escaping () -> Void
-    ) -> some View {
-        let isDisabled = !configuration.isEnabled
-        let isHovered = self.hoveredButtonID == configuration.id && !isDisabled
-        let shape = Capsule()
-        let accentColor = configuration.tone == .destructive ? Color.red : FluidOnboardingLandingColors.blue
-        let isPrimary = configuration.tone == .primary
-        let isDestructive = configuration.tone == .destructive
-        let fillColor: Color = {
-            if isPrimary {
-                return accentColor.opacity(isDisabled ? 0.34 : 1)
-            }
-            if isDestructive {
-                return Color.red.opacity(isDisabled ? 0.045 : (isHovered ? 0.24 : 0.16))
-            }
-            return Color.white.opacity(isDisabled ? 0.045 : (isHovered ? 0.11 : 0.07))
-        }()
-        let borderColor: Color = {
-            if isPrimary {
-                return Color.white.opacity(isHovered ? 0.30 : 0)
-            }
-            if isDestructive {
-                return Color.red.opacity(isHovered ? 0.48 : 0.24)
-            }
-            return isHovered ? accentColor.opacity(0.30) : Color.white.opacity(0.07)
-        }()
-        let foregroundOpacity = isDisabled ? 0.42 : (isPrimary ? 1.0 : (isHovered ? 0.94 : 0.78))
-        let shadowOpacity = isDisabled ? 0 : (isPrimary ? (isHovered ? 0.56 : 0.26) : (isHovered ? 0.12 : 0))
-
-        return Button(action: action) {
-            HStack(spacing: configuration.systemImage == nil ? 0 : 8) {
-                if let systemImage = configuration.systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 12, weight: .bold))
-                }
-
-                Text(configuration.title)
-                    .font(.system(size: configuration.fontSize, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-            .foregroundStyle(.white.opacity(foregroundOpacity))
-            .frame(width: configuration.width, height: configuration.height)
-            .background(
-                shape
-                    .fill(fillColor)
-                    .overlay(shape.fill(Color.white.opacity(isPrimary && isHovered ? 0.10 : 0)))
-                    .overlay(shape.stroke(borderColor, lineWidth: isHovered ? 1.2 : 1))
-                    .overlay(
-                        shape
-                            .stroke(accentColor.opacity(isHovered ? 0.50 : 0), lineWidth: isHovered ? 1.4 : 1)
-                            .padding(-2)
-                    )
-                    .shadow(color: accentColor.opacity(shadowOpacity), radius: isHovered ? 16 : 9, x: 0, y: isHovered ? 6 : 3)
-            )
-            .contentShape(shape)
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .contentShape(shape)
-        .disabled(isDisabled)
-        .onHover { isHovered in
-            self.setHoveredButton(isHovered && !isDisabled ? configuration.id : nil)
-        }
-    }
-
-    private func setHoveredButton(_ buttonID: String?) {
-        guard self.hoveredButtonID != buttonID else { return }
-        if self.reduceMotion {
-            self.hoveredButtonID = buttonID
-        } else {
-            withAnimation(.easeOut(duration: 0.14)) {
-                self.hoveredButtonID = buttonID
-            }
-        }
-    }
+    // MARK: - Try-out state
 
     private func selectExample(_ example: EnhancementExample) {
         guard !self.isRunning else { return }
@@ -1150,7 +811,9 @@ struct OnboardingAIEnhancementStepView: View {
         }
     }
 
-    private func handlePrivateAIPrimaryAction(scrollProxy: ScrollViewProxy) {
+    // MARK: - Private AI actions
+
+    private func handlePrivateAIPrimaryAction() {
         guard self.canNavigateOrMutate else { return }
 
         guard PrivateFeatures.privateAIProvider,
@@ -1161,7 +824,7 @@ struct OnboardingAIEnhancementStepView: View {
         }
 
         if self.isPrivateAIInstalled {
-            self.activatePrivateAI(scrollProxy: scrollProxy)
+            self.activatePrivateAI()
         } else {
             self.downloadPrivateAIModel()
         }
@@ -1208,7 +871,7 @@ struct OnboardingAIEnhancementStepView: View {
         }
     }
 
-    private func activatePrivateAI(scrollProxy: ScrollViewProxy) {
+    private func activatePrivateAI() {
         guard self.canNavigateOrMutate else { return }
 
         let model = self.privateAIModel
@@ -1230,7 +893,6 @@ struct OnboardingAIEnhancementStepView: View {
                 self.persistPrivateAIVerification(model)
                 self.shouldShowTryout = true
                 self.isLoadingPrivateAI = false
-                self.scrollToTop(using: scrollProxy)
             } catch is CancellationError {
                 guard self.privateAIActionID == actionID else { return }
                 self.isLoadingPrivateAI = false
@@ -1350,18 +1012,6 @@ struct OnboardingAIEnhancementStepView: View {
         self.isLoadingPrivateAI = false
         self.isDeletingPrivateAI = false
         self.privateAISetupProgress = nil
-    }
-
-    private func scrollToTop(using proxy: ScrollViewProxy) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            if self.reduceMotion {
-                proxy.scrollTo(Self.ScrollTarget.top, anchor: .top)
-            } else {
-                withAnimation(.easeInOut(duration: 0.34)) {
-                    proxy.scrollTo(Self.ScrollTarget.top, anchor: .top)
-                }
-            }
-        }
     }
 
     private struct PrivateAISetupError: LocalizedError {

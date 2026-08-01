@@ -64,12 +64,22 @@ struct SearchableModelPicker: View {
         HStack(spacing: 8) {
             // Model button that opens popover
             Button(action: { self.isShowingPopover.toggle() }) {
-                HStack(spacing: 6) {
-                    Text(self.selectedModel.isEmpty ? "Select Model" : self.selectedModel)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(self.selectedModel.isEmpty ? .secondary : self.theme.palette.primaryText)
+                HStack(spacing: 10) {
+                    Group {
+                        if self.selectedModel.isEmpty {
+                            Text("Select model")
+                                .basicsProse(13)
+                                .foregroundStyle(self.theme.palette.tertiaryText)
+                        } else {
+                            // A model id is an identifier, not prose — mono.
+                            Text(self.selectedModel)
+                                .basicsMono(12)
+                                .foregroundStyle(self.theme.palette.primaryText)
+                        }
+                    }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
                     Spacer(minLength: 6)
                     FluidPickerDisclosureIcon(backgroundOpacity: 0.6)
                 }
@@ -86,11 +96,20 @@ struct SearchableModelPicker: View {
             .popover(isPresented: self.$isShowingPopover, arrowEdge: .bottom) {
                 VStack(spacing: 0) {
                     // Search field
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search models...", text: self.$searchText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                        TextField("Search models…", text: self.$searchText)
                             .textFieldStyle(.plain)
+                            .basicsProse(13)
+                            .foregroundStyle(self.theme.palette.primaryText)
+
+                        if self.isRefreshing {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .fixedSize()
+                        }
                     }
                     .searchablePickerSearchFieldChrome()
 
@@ -98,27 +117,24 @@ struct SearchableModelPicker: View {
 
                     VStack(spacing: 0) {
                         if self.models.isEmpty {
-                            VStack(spacing: 8) {
-                                Image(systemName: "tray")
-                                    .font(.title2)
-                                    .foregroundStyle(.secondary)
+                            VStack(spacing: 5) {
                                 Text("No models")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .basicsLabel(13)
+                                    .foregroundStyle(self.theme.palette.secondaryText)
                                 Text("Click refresh to fetch from API")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                                    .basicsProse(12)
+                                    .foregroundStyle(self.theme.palette.tertiaryText)
                             }
-                            .frame(height: 100)
+                            .frame(height: 96)
                             .frame(maxWidth: .infinity)
                         } else {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: 0) {
                                     if self.filteredModels.isEmpty {
-                                        Text("No models match '\(self.searchText)'")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .padding()
+                                        Text("No models match “\(self.searchText)”")
+                                            .basicsProse(12)
+                                            .foregroundStyle(self.theme.palette.secondaryText)
+                                            .padding(14)
                                             .frame(maxWidth: .infinity, alignment: .center)
                                     } else {
                                         ForEach(self.filteredModels.prefix(100), id: \.self) { model in
@@ -127,17 +143,26 @@ struct SearchableModelPicker: View {
                                                 self.searchText = ""
                                                 self.isShowingPopover = false
                                             }) {
-                                                HStack {
-                                                    Text(model)
-                                                        .lineLimit(1)
-                                                    Spacer()
+                                                HStack(spacing: 8) {
                                                     if model == self.selectedModel {
                                                         Image(systemName: "checkmark")
+                                                            .font(.system(size: 10, weight: .semibold))
                                                             .foregroundStyle(self.theme.palette.accent)
+                                                            .frame(width: 12)
+                                                    } else {
+                                                        Color.clear.frame(width: 12, height: 1)
                                                     }
+
+                                                    Text(model)
+                                                        .basicsMono(12)
+                                                        .foregroundStyle(self.theme.palette.primaryText)
+                                                        .lineLimit(1)
+                                                        .truncationMode(.middle)
+
+                                                    Spacer(minLength: 0)
                                                 }
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 6)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 7)
                                                 .contentShape(Rectangle())
                                             }
                                             .buttonStyle(.plain)
@@ -151,9 +176,10 @@ struct SearchableModelPicker: View {
                             if self.filteredModels.count > 100 {
                                 Divider()
                                 Text("\(self.filteredModels.count - 100) more (use search)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .padding(6)
+                                    .basicsProse(12)
+                                    .foregroundStyle(self.theme.palette.tertiaryText)
+                                    .padding(8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
@@ -187,16 +213,15 @@ struct SearchableModelPicker: View {
                         ZStack {
                             if self.isRefreshing {
                                 ProgressView()
-                                    .scaleEffect(0.6)
-                                    .frame(width: 16, height: 16)
+                                    .controlSize(.mini)
+                                    .fixedSize()
                             } else {
                                 Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 12, weight: .medium))
                             }
                         }
-                        .frame(width: self.refreshButtonSize, height: self.refreshButtonSize)
                     }
-                    .fluidCompactButton(isReady: false)
+                    .buttonStyle(SquareIconButtonStyle())
                     .disabled(self.isRefreshing || !self.refreshEnabled)
                     .opacity(self.refreshEnabled ? 1 : 0.45)
                     .help("Refresh model list")

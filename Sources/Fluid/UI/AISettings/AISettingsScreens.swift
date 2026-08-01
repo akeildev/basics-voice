@@ -16,13 +16,38 @@ struct VoiceEngineSettingsScreen: View {
     }
 
     var body: some View {
-        VoiceEngineSettingsView(
-            viewModel: self.viewModel,
-            settings: self.viewModel.settings,
-            theme: self.theme
-        )
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 28) {
+                self.pageHead
+
+                VoiceEngineSettingsView(
+                    viewModel: self.viewModel,
+                    settings: self.viewModel.settings,
+                    theme: self.theme
+                )
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 32)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(self.theme.palette.windowBackground)
+    }
+
+    /// Eyebrow → title → one prose line, per the Basics page-head pattern.
+    private var pageHead: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Dictation")
+                .basicsMicroLabel(11)
+                .foregroundStyle(self.theme.palette.accent)
+            Text("Voice engine")
+                .basicsLabel(28)
+                .foregroundStyle(self.theme.palette.primaryText)
+            Text("Which model turns your speech into text, and where it runs. Local models never leave this Mac.")
+                .basicsProse(15)
+                .foregroundStyle(self.theme.palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -53,7 +78,9 @@ struct AIEnhancementSettingsScreen: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 28) {
+                self.pageHead
+
                 AIEnhancementSettingsView(
                     viewModel: self.viewModel,
                     settings: self.viewModel.settings,
@@ -63,7 +90,28 @@ struct AIEnhancementSettingsScreen: View {
                     shortcutRecordingMessage: self.$shortcutRecordingMessage
                 )
             }
-            .padding(14)
+            .padding(.horizontal, 40)
+            .padding(.top, 32)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .background(self.theme.palette.windowBackground)
+    }
+
+    /// Eyebrow → title → one prose line, per the Basics page-head pattern.
+    private var pageHead: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Dictation")
+                .basicsMicroLabel(11)
+                .foregroundStyle(self.theme.palette.accent)
+            Text("AI enhancements")
+                .basicsLabel(28)
+                .foregroundStyle(self.theme.palette.primaryText)
+            Text("Set up providers and prompt behavior separately. Providers are the models that can rewrite a transcript; prompts decide what they are told to do.")
+                .basicsProse(15)
+                .foregroundStyle(self.theme.palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 640, alignment: .leading)
         }
     }
 }

@@ -170,7 +170,9 @@ final class DictionaryCorrectionOverlayController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // SwiftUI draws the shadow now (the view reserves a 10pt ring for it), so
+        // AppKit must not add a second, square one behind the rounded panel.
+        panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
@@ -219,6 +221,8 @@ final class DictionaryCorrectionOverlayController {
     }
 }
 
+// MARK: - Correction overlay (board 18)
+
 private struct AutomaticDictionaryCorrectionOverlayView: View {
     @ObservedObject var session: AutomaticDictionaryTrainingSession
     @ObservedObject private var settings = SettingsStore.shared
@@ -228,9 +232,25 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isDismissHovered = false
+    @State private var isBackHovered = false
     @State private var progress: CGFloat = 1
 
-    private var accent: Color { self.settings.accentColor }
+    /// The user's accent, stepped up for this dark ground. `green500` is the
+    /// value on every light page but drops under 3:1 on `#0B0E0C`, so the Basics
+    /// default resolves to `g400`; a deliberately-picked custom accent is left
+    /// exactly as the user set it in Preferences.
+    private var accent: Color {
+        self.settings.accentColorOption == .basics
+            ? BasicsTokens.Dark.accent
+            : self.settings.accentColor
+    }
+
+    /// Accent-coloured TEXT, which needs one more step of lift than a fill.
+    private var accentInk: Color {
+        self.settings.accentColorOption == .basics
+            ? BasicsTokens.Dark.accentInk
+            : self.settings.accentColor
+    }
 
     var body: some View {
         Group {
@@ -243,23 +263,25 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
                 self.successContent
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 18)
         .frame(width: 460)
         .background(self.overlayBackground)
         .overlay(alignment: .bottomLeading) {
             if self.session.screen == .choice {
                 GeometryReader { proxy in
                     Capsule()
-                        .fill(Color.white.opacity(0.72))
+                        .fill(BasicsTokens.Dark.ink.opacity(0.7))
                         .frame(width: proxy.size.width * self.progress, height: 2)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 3)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 6)
                 .allowsHitTesting(false)
             }
         }
+        .padding(10) // shadow room inside the borderless panel
         .preferredColorScheme(.dark)
         .animation(self.reduceMotion ? nil : .easeOut(duration: 0.16), value: self.session.screen)
         .onAppear {
@@ -267,20 +289,23 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
         }
     }
 
+    // MARK: Choice
+
     private var choiceContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 18) {
             self.header(title: "Correction noticed", allowsBack: false)
 
-            self.correctionPair
+            self.correctionPair(size: 20)
 
-            Text("Save only this correction, or teach FluidVoice other pronunciations.")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.58))
-                .lineLimit(1)
+            Text("Save just this correction, or teach Basics Voice how you say it.")
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Dark.muted)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 CorrectionOverlayActionButton(
-                    title: "Train by Voice",
+                    title: "Train by voice",
                     systemImage: "mic.fill",
                     style: .secondary,
                     accent: self.accent,
@@ -288,7 +313,7 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
                 )
 
                 CorrectionOverlayActionButton(
-                    title: "Add This Correction",
+                    title: "Add this correction",
                     systemImage: "plus",
                     style: .accent,
                     accent: self.accent,
@@ -299,58 +324,15 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
         .transition(.opacity)
     }
 
+    // MARK: Training
+
     private var trainingContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            self.header(title: "Train by Voice", allowsBack: true)
+        VStack(alignment: .leading, spacing: 16) {
+            self.header(title: "Train by voice", allowsBack: true)
 
-            self.correctionPair
+            self.correctionPair(size: 17)
 
-            VStack(alignment: .leading, spacing: 9) {
-                Text("Teach FluidVoice your pronunciation")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.94))
-
-                if self.session.isReady {
-                    Label("FluidVoice got it right 3 times in a row.", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(self.accent)
-                } else {
-                    VStack(alignment: .leading, spacing: 5) {
-                        self.trainingInstruction(number: 1, text: "Press Start once.")
-                        self.trainingInstruction(
-                            number: 2,
-                            text: "Say the word, then pause. FluidVoice captures it and listens again."
-                        )
-                        self.trainingInstruction(number: 3, text: "Repeat naturally until the circle reaches 3/3.")
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    CorrectionOverlayReadinessRing(
-                        progress: self.session.readinessProgress,
-                        total: CustomDictionaryTrainingMerge.readyCoveredCount,
-                        isReady: self.session.isReady,
-                        accent: self.accent
-                    )
-
-                    Text(self.overlayReadinessCaption)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(self.session.isReady ? self.accent : .white.opacity(0.58))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer(minLength: 8)
-
-                    CorrectionOverlayRecordButton(
-                        title: self.session.recordButtonTitle,
-                        isStop: self.session.recordButtonIsStop,
-                        isEnabled: self.session.canUseRecordButton,
-                        accent: self.accent,
-                        action: self.session.toggleCapture
-                    )
-                }
-            }
-            .padding(10)
-            .background(self.panelSurface)
+            self.trainingPanel
 
             self.finalOutputRow
 
@@ -359,55 +341,120 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
             }
 
             if self.session.capturePhase == .idle, self.session.hasError, !self.session.statusMessage.isEmpty {
-                Label(
-                    self.session.statusMessage,
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.red.opacity(0.9))
-                .lineLimit(1)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(BasicsTokens.Dark.danger)
+                    Text(self.session.statusMessage)
+                        .basicsProse(13)
+                        .foregroundStyle(BasicsTokens.Dark.danger)
+                        .lineLimit(1)
+                }
             }
 
-            CorrectionOverlayActionButton(
-                title: "Add Replacement",
-                systemImage: self.session.isReady ? "sparkles" : "plus",
-                style: .accent,
-                accent: self.accent,
-                isEnabled: self.session.canSave,
-                isReady: self.session.isReady,
-                action: self.session.addTrainedReplacement
-            )
+            HStack(spacing: 10) {
+                CorrectionOverlayRecordButton(
+                    title: self.session.recordButtonTitle,
+                    isStop: self.session.recordButtonIsStop,
+                    isChecking: self.session.capturePhase == .processing,
+                    isEnabled: self.session.canUseRecordButton,
+                    action: self.session.toggleCapture
+                )
+
+                CorrectionOverlayActionButton(
+                    title: "Add replacement",
+                    systemImage: self.session.isReady ? "sparkles" : "plus",
+                    style: .accent,
+                    accent: self.accent,
+                    isEnabled: self.session.canSave,
+                    isReady: self.session.isReady,
+                    action: self.session.addTrainedReplacement
+                )
+            }
         }
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    private var trainingPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Teach Basics Voice how you say it")
+                .basicsLabel(13)
+                .foregroundStyle(BasicsTokens.Dark.ink)
+
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if self.session.isReady {
+                        HStack(alignment: .firstTextBaseline, spacing: 9) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(self.accent)
+                            Text("Basics Voice got it right \(CustomDictionaryTrainingMerge.readyCoveredCount) times in a row.")
+                                .basicsProse(13)
+                                .foregroundStyle(self.accentInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        self.trainingInstruction(number: 1, text: "Press Start once.")
+                        self.trainingInstruction(
+                            number: 2,
+                            text: "Say the word, then pause. It captures and listens again."
+                        )
+                        self.trainingInstruction(
+                            number: 3,
+                            text: "Repeat naturally until the circle reaches \(CustomDictionaryTrainingMerge.readyCoveredCount) of \(CustomDictionaryTrainingMerge.readyCoveredCount)."
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                CorrectionOverlayReadinessRing(
+                    progress: self.session.readinessProgress,
+                    total: CustomDictionaryTrainingMerge.readyCoveredCount,
+                    isReady: self.session.isReady,
+                    accent: self.accent,
+                    accentInk: self.accentInk
+                )
+            }
+
+            Text(self.overlayReadinessCaption)
+                .basicsProse(12.5)
+                .foregroundStyle(self.session.isReady ? self.accentInk : BasicsTokens.Dark.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.panelSurface)
+    }
+
     private var overlayReadinessCaption: String {
         if self.session.isReady {
-            return "Ready. Add Replacement is unlocked."
+            return "Ready. Add replacement is unlocked."
         }
         let remaining = max(
             0,
             CustomDictionaryTrainingMerge.readyCoveredCount - self.session.readinessProgress
         )
-        return "\(remaining) correct \(remaining == 1 ? "try" : "tries") to unlock Add Replacement."
+        return "\(remaining) correct \(remaining == 1 ? "try" : "tries") to unlock Add replacement."
     }
 
     private func trainingInstruction(number: Int, text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
             Text("\(number)")
-                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .basicsMono(12)
                 .foregroundStyle(self.accent)
-                .frame(width: 14)
+                .frame(width: 14, alignment: .leading)
 
             Text(text)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.white.opacity(0.58))
+                .basicsProse(13)
+                .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    // MARK: Success
+
     private var successContent: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             ZStack {
                 Circle()
                     .fill(self.accent.opacity(0.18))
@@ -417,13 +464,13 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
                     .foregroundStyle(self.accent)
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(self.session.successTitle)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .basicsLabel(15)
+                    .foregroundStyle(BasicsTokens.Dark.ink)
                 Text("“\(self.session.candidate.heardText)” will become “\(self.session.candidate.correctedText)”.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .basicsProse(13)
+                    .foregroundStyle(BasicsTokens.Dark.muted)
                     .lineLimit(1)
             }
 
@@ -433,41 +480,54 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
         .transition(.scale(scale: 0.96).combined(with: .opacity))
     }
 
+    // MARK: Shared rows
+
     private func header(title: String, allowsBack: Bool) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 12) {
             if allowsBack {
                 Button(action: self.session.returnToChoice) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(Color.white.opacity(0.06)))
+                        .background(
+                            Circle().fill(
+                                self.isBackHovered
+                                    ? BasicsTokens.Dark.iconButton
+                                    : BasicsTokens.Dark.chipFill
+                            )
+                        )
                 }
                 .buttonStyle(.plain)
                 .disabled(self.session.capturePhase != .idle)
                 .opacity(self.session.capturePhase == .idle ? 1 : 0.35)
+                .onHover { self.isBackHovered = $0 }
                 .help("Back")
             } else {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(self.accent)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(self.accent.opacity(0.16)))
             }
 
             Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.72))
+                .basicsLabel(13)
+                .foregroundStyle(BasicsTokens.Dark.inkSubtle)
 
             Spacer(minLength: 8)
 
             Button(action: self.onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(self.isDismissHovered ? 0.95 : 0.68))
+                    .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                     .frame(width: 24, height: 24)
                     .background(
-                        Circle()
-                            .fill(Color.white.opacity(self.isDismissHovered ? 0.13 : 0.06))
+                        Circle().fill(
+                            self.isDismissHovered
+                                ? BasicsTokens.Dark.iconButton
+                                : BasicsTokens.Dark.chipFill
+                        )
                     )
             }
             .buttonStyle(.plain)
@@ -477,57 +537,66 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
         }
     }
 
-    private var correctionPair: some View {
-        HStack(spacing: 8) {
+    private func correctionPair(size: CGFloat) -> some View {
+        HStack(spacing: 14) {
             Text(self.session.candidate.heardText)
-                .foregroundStyle(.white.opacity(0.78))
+                .basicsLabel(size)
+                .foregroundStyle(BasicsTokens.Dark.muted)
 
             Image(systemName: "arrow.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.42))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(self.accent)
 
             Text(self.session.candidate.correctedText)
-                .foregroundStyle(.white)
+                .basicsLabel(size)
+                .foregroundStyle(BasicsTokens.Dark.ink)
         }
-        .font(.system(size: 16, weight: .semibold))
         .lineLimit(1)
         .minimumScaleFactor(0.72)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var finalOutputRow: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Final output")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.46))
-                Text(self.session.finalOutputText)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(self.session.lastOutput.isEmpty ? 0.48 : 0.9))
-                    .lineLimit(1)
-            }
+    /// An uppercase micro-label in a fixed lane so "Final output" and "Captured"
+    /// share one left edge.
+    private func rowCaption(_ text: String) -> some View {
+        Text(text)
+            .basicsMicroLabel(11)
+            .foregroundStyle(BasicsTokens.Dark.faint)
+            .frame(width: 96, alignment: .leading)
+    }
 
-            Spacer(minLength: 8)
+    private var finalOutputRow: some View {
+        HStack(spacing: 14) {
+            self.rowCaption("Final output")
+
+            Text(self.session.finalOutputText)
+                .basicsLabel(13)
+                .foregroundStyle(
+                    self.session.lastOutput.isEmpty
+                        ? BasicsTokens.Dark.muted
+                        : BasicsTokens.Dark.ink
+                )
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if self.session.isReady {
-                Label("Ready", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(self.accent)
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Ready")
+                        .basicsLabel(12)
+                }
+                .foregroundStyle(self.accentInk)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(self.panelSurface)
     }
 
     private var capturedVariantsRow: some View {
-        HStack(spacing: 6) {
-            Text("Captured")
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.46))
+        HStack(spacing: 14) {
+            self.rowCaption("Captured")
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ForEach(self.session.variants, id: \.self) { variant in
                         CorrectionOverlayVariantChip(variant: variant) {
                             self.session.removeVariant(variant)
@@ -550,37 +619,47 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
         }
     }
 
+    // MARK: Chrome
+
     private var panelSurface: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.white.opacity(0.045))
+        RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+            .fill(Color.white.opacity(0.04))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                    .strokeBorder(BasicsTokens.Dark.hairline, lineWidth: 1)
             )
     }
 
     private var overlayBackground: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(Color.black)
+        RoundedRectangle(cornerRadius: BasicsTokens.Radius.xl, style: .continuous)
+            .fill(BasicsTokens.Dark.panel)
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.xl, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
-                            colors: [.white.opacity(0.15), .white.opacity(0.08)],
+                            colors: [
+                                Color.white.opacity(0.26),
+                                Color.white.opacity(0.07),
+                                Color.white.opacity(0.04),
+                            ],
                             startPoint: .top,
                             endPoint: .bottom
                         ),
                         lineWidth: 1
                     )
             )
+            .shadow(color: Color.black.opacity(0.6), radius: 24, x: 0, y: 20)
     }
 }
+
+// MARK: - Readiness ring
 
 private struct CorrectionOverlayReadinessRing: View {
     let progress: Int
     let total: Int
     let isReady: Bool
     let accent: Color
+    let accentInk: Color
 
     private var fraction: Double {
         guard self.total > 0 else { return 0 }
@@ -590,25 +669,25 @@ private struct CorrectionOverlayReadinessRing: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.16), lineWidth: 7)
+                .stroke(Color.white.opacity(0.10), lineWidth: 5)
 
             Circle()
                 .trim(from: 0, to: self.fraction)
                 .stroke(
                     self.accent,
-                    style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
 
-            VStack(spacing: 0) {
+            VStack(spacing: 1) {
                 Text("\(self.progress)/\(self.total)")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(self.isReady ? self.accent : .white.opacity(0.92))
+                    .basicsLabel(18)
+                    .foregroundStyle(self.isReady ? self.accentInk : BasicsTokens.Dark.ink)
                     .monospacedDigit()
 
-                Text(self.isReady ? "Ready" : "correct")
-                    .font(.system(size: 8.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.46))
+                Text(self.isReady ? "Ready" : "Correct")
+                    .basicsMicroLabel(10)
+                    .foregroundStyle(self.isReady ? self.accent : BasicsTokens.Dark.faint)
             }
         }
         .frame(width: 76, height: 76)
@@ -619,6 +698,8 @@ private struct CorrectionOverlayReadinessRing: View {
         .accessibilityValue("\(self.progress) of \(self.total) correct")
     }
 }
+
+// MARK: - Buttons
 
 private struct CorrectionOverlayActionButton: View {
     enum Style {
@@ -644,12 +725,16 @@ private struct CorrectionOverlayActionButton: View {
 
     var body: some View {
         Button(action: self.action) {
-            Label(self.title, systemImage: self.systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(self.isEnabled ? 0.94 : 0.42))
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-                .background(self.background)
+            HStack(spacing: 8) {
+                Image(systemName: self.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(self.title)
+                    .basicsButtonLabel(13)
+            }
+            .foregroundStyle(self.labelColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(self.background)
         }
         .buttonStyle(.plain)
         .disabled(!self.isEnabled)
@@ -660,44 +745,52 @@ private struct CorrectionOverlayActionButton: View {
         }
     }
 
+    private var labelColor: Color {
+        guard self.isEnabled else { return BasicsTokens.Dark.muted }
+        switch self.style {
+        case .accent: return BasicsTokens.Dark.panel
+        case .secondary: return BasicsTokens.Dark.ink
+        }
+    }
+
     private var background: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
             .fill(self.fillColor)
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
                     .strokeBorder(self.borderColor, lineWidth: self.isReady ? 1.5 : 1)
             )
             .shadow(
-                color: self.isReady ? self.accent.opacity(self.isGlowExpanded ? 0.34 : 0.14) : .clear,
-                radius: self.isReady ? (self.isGlowExpanded ? 16 : 7) : 0,
+                color: self.isReady ? self.accent.opacity(self.isGlowExpanded ? 0.45 : 0.18) : .clear,
+                radius: self.isReady ? (self.isGlowExpanded ? 22 : 9) : 0,
                 y: 3
             )
     }
 
     private var fillColor: Color {
         guard self.isEnabled else {
-            return Color.white.opacity(0.045)
+            return Color.white.opacity(0.04)
         }
         switch self.style {
         case .accent:
-            return self.accent.opacity(self.isHovered ? 1 : 0.9)
+            return self.isHovered ? self.accent : self.accent.opacity(0.92)
         case .secondary:
-            return Color.white.opacity(self.isHovered ? 0.1 : 0.045)
+            return self.isHovered ? BasicsTokens.Dark.chipFillHover : BasicsTokens.Dark.chipFill
         }
     }
 
     private var borderColor: Color {
         guard self.isEnabled else {
-            return Color.white.opacity(0.1)
+            return BasicsTokens.Dark.hairline
         }
         if self.isReady {
             return self.accent.opacity(0.78)
         }
         switch self.style {
         case .accent:
-            return Color.white.opacity(self.isEnabled ? 0.18 : 0.06)
+            return Color.white.opacity(0.18)
         case .secondary:
-            return Color.white.opacity(self.isHovered ? 0.28 : 0.16)
+            return self.isHovered ? BasicsTokens.Dark.chipBorderHover : BasicsTokens.Dark.border
         }
     }
 
@@ -719,33 +812,61 @@ private struct CorrectionOverlayActionButton: View {
 private struct CorrectionOverlayRecordButton: View {
     let title: String
     let isStop: Bool
+    let isChecking: Bool
     let isEnabled: Bool
-    let accent: Color
     let action: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         Button(action: self.action) {
-            Label(self.title, systemImage: self.isStop ? "stop.fill" : "mic.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(self.isEnabled ? 0.95 : 0.4))
-                .padding(.horizontal, 13)
-                .frame(height: 36)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(self.buttonColor.opacity(self.isEnabled ? (self.isHovered ? 1 : 0.9) : 0.25))
-                )
+            HStack(spacing: 8) {
+                if self.isChecking {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: self.isStop ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(self.title)
+                    .basicsButtonLabel(13)
+            }
+            .foregroundStyle(self.labelColor)
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                    .fill(self.fillColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                            .strokeBorder(self.borderColor, lineWidth: 1)
+                    )
+            )
         }
         .buttonStyle(.plain)
         .disabled(!self.isEnabled)
         .onHover { self.isHovered = $0 }
     }
 
-    private var buttonColor: Color {
-        self.isStop ? Color(red: 0.82, green: 0.18, blue: 0.2) : self.accent
+    private var labelColor: Color {
+        self.isEnabled ? BasicsTokens.Dark.ink : BasicsTokens.Dark.muted
+    }
+
+    private var fillColor: Color {
+        guard self.isEnabled else { return Color.white.opacity(0.04) }
+        if self.isStop {
+            return BasicsTokens.Dark.danger.opacity(self.isHovered ? 1 : 0.9)
+        }
+        return self.isHovered ? BasicsTokens.Dark.chipFillHover : Color.white.opacity(0.10)
+    }
+
+    private var borderColor: Color {
+        guard self.isEnabled else { return BasicsTokens.Dark.hairline }
+        return self.isStop ? Color.white.opacity(0.18) : BasicsTokens.Dark.border
     }
 }
+
+// MARK: - Captured chip
 
 private struct CorrectionOverlayVariantChip: View {
     let variant: String
@@ -755,29 +876,30 @@ private struct CorrectionOverlayVariantChip: View {
 
     var body: some View {
         Button(action: self.onRemove) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Text(self.variant)
+                    .basicsLabel(12)
+                    .foregroundStyle(BasicsTokens.Dark.inkSubtle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.white.opacity(self.isHovered ? 0.72 : 0.42))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(
+                        self.isHovered ? BasicsTokens.Dark.ink : BasicsTokens.Dark.faint
+                    )
             }
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(.white.opacity(0.72))
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 8)
             .frame(height: 23)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(self.isHovered ? 0.1 : 0.06))
+                Capsule()
+                    .fill(self.isHovered ? BasicsTokens.Dark.chipFillHover : BasicsTokens.Dark.chipFill)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        Capsule().strokeBorder(BasicsTokens.Dark.chipBorder, lineWidth: 1)
                     )
             )
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: 112)
+        .frame(maxWidth: 120)
         .onHover { self.isHovered = $0 }
         .help("Remove \(self.variant)")
     }

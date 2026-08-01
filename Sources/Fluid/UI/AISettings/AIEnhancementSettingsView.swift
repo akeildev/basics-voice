@@ -11,9 +11,9 @@ enum AIEnhancementConfigurationSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .providers:
-            return "AI Providers"
+            return "AI providers"
         case .advancedPrompts:
-            return "Advanced Prompts"
+            return "Advanced prompts"
         }
     }
 
@@ -72,6 +72,7 @@ enum PrivateAIModelLoadState: Equatable {
 }
 
 struct AIEnhancementSettingsView: View {
+    @Environment(\.colorScheme) var colorScheme
     @ObservedObject var viewModel: AIEnhancementSettingsViewModel
     @ObservedObject var settings: SettingsStore
     @ObservedObject var promptTest: DictationPromptTestCoordinator
@@ -84,11 +85,12 @@ struct AIEnhancementSettingsView: View {
     @State var privateAILoadState: PrivateAIModelLoadState = .idle
     @State var selectedConfigurationSection: AIEnhancementConfigurationSection = .providers
     @State var hoveredConfigurationSection: AIEnhancementConfigurationSection?
+    @State var hoveredProviderCardID: String? = nil
     @State var hoveredPromptCardKey: String? = nil
     @State var selectedPromptMode: SettingsStore.PromptMode = .dictate
-    @State var hoveredPromptModeKey: String? = nil
     @State var hoveredPromptScopeKey: String? = nil
     @State var isPromptProfilesHelpPresented: Bool = false
+    @State var isBasePromptExpanded: Bool = false
     @State var promptEditorPrimarySelectionDraft: SettingsStore.DictationPromptSelection? = nil
     @State var promptEditorShortcutDraft: HotkeyShortcut? = nil
     @State var promptEditorProviderIDDraft: String = ""
@@ -116,7 +118,7 @@ struct AIEnhancementSettingsView: View {
                 self.viewModel.presentKeychainAccessAlert(message: self.viewModel.keychainPermissionMessage)
                 self.viewModel.showKeychainPermissionAlert = false
             }
-            .alert("Delete Prompt?", isPresented: self.$viewModel.showingDeletePromptConfirm) {
+            .alert("Delete prompt?", isPresented: self.$viewModel.showingDeletePromptConfirm) {
                 Button("Delete", role: .destructive) {
                     self.viewModel.deletePendingPrompt()
                 }
@@ -131,7 +133,7 @@ struct AIEnhancementSettingsView: View {
                 }
             }
             .alert(
-                "Couldn't Add App Override",
+                "Couldn't add app override",
                 isPresented: Binding(
                     get: { !self.viewModel.appPromptBindingErrorMessage.isEmpty },
                     set: { isPresented in
@@ -149,42 +151,35 @@ struct AIEnhancementSettingsView: View {
             }
     }
 
+    /// Board 04c — a bare settings row on the surface between two hairlines, not
+    /// a card. The one prompt-behaviour switch on the page.
     var customPromptOnlyToggleRow: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "text.quote")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(self.theme.palette.accent)
-                .frame(width: 24, height: 24)
+        VStack(spacing: 0) {
+            AIHairline()
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Send Custom Prompt Only")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.primaryText)
-                Text("For custom Dictate prompts, send your prompt without prepending the built-in dictation prompt.")
-                    .font(.caption2)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .center, spacing: AISettingsLayout.settingRowGap) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Send custom prompt only")
+                        .basicsLabel(15)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                    Text("For custom Dictate prompts, send your prompt without prepending the built-in dictation prompt.")
+                        .basicsProse(13)
+                        .foregroundStyle(self.theme.palette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Toggle("", isOn: Binding(
+                    get: { self.viewModel.sendCustomPromptOnly },
+                    set: { self.viewModel.setSendCustomPromptOnly($0) }
+                ))
+                .toggleStyle(GlassToggleStyle())
+                .labelsHidden()
+                .help("Send custom Dictate prompts without prepending the built-in dictation prompt.")
             }
+            .padding(.vertical, AISettingsLayout.settingRowPadding)
 
-            Spacer(minLength: 12)
-
-            Toggle("", isOn: Binding(
-                get: { self.viewModel.sendCustomPromptOnly },
-                set: { self.viewModel.setSendCustomPromptOnly($0) }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
-            .help("Send custom Dictate prompts without prepending the built-in dictation prompt.")
+            AIHairline()
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(self.theme.palette.cardBackground.opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.32), lineWidth: 1)
-                )
-        )
     }
 }

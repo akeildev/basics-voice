@@ -1,4 +1,7 @@
+import AppKit
 import SwiftUI
+
+// MARK: - Shared interaction + control metrics
 
 enum FluidInteractionVisuals {
     static let hoverScale: CGFloat = 1.01
@@ -13,6 +16,43 @@ enum FluidInteractionVisuals {
     }
 }
 
+/// Board "15 — Components" § Buttons and § Focus.
+enum BasicsControl {
+    /// Fields, selects, icon buttons and nav rows. Between `Radius.sm` and
+    /// `Radius.md`, and the board draws it at every one of those four places.
+    static let radius: CGFloat = 8
+
+    /// The keyboard focus ring: a 2px gap in the ground colour, then a 2px brand
+    /// ring at 45%. Keyboard only — a mouse click never draws it.
+    static let ringGap: CGFloat = 2
+    static let ringWidth: CGFloat = 2
+    static var ringColor: Color { BasicsTokens.Semantic.brand.opacity(0.45) }
+}
+
+private struct BasicsFocusRing: ViewModifier {
+    let isFocused: Bool
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let inset = BasicsControl.ringGap + BasicsControl.ringWidth / 2
+
+        content.overlay {
+            if self.isFocused {
+                RoundedRectangle(cornerRadius: self.cornerRadius + inset, style: .continuous)
+                    .stroke(BasicsControl.ringColor, lineWidth: BasicsControl.ringWidth)
+                    .padding(-inset)
+            }
+        }
+    }
+}
+
+extension View {
+    /// The one focus ring every control uses.
+    func basicsFocusRing(_ isFocused: Bool, cornerRadius: CGFloat) -> some View {
+        modifier(BasicsFocusRing(isFocused: isFocused, cornerRadius: cornerRadius))
+    }
+}
+
 enum FluidButtonRole {
     case primary
     case secondary
@@ -21,6 +61,8 @@ enum FluidButtonRole {
     case accent
     case destructive
     case inline
+    /// Navigation inside a section header — Show all, Learn more, Reset.
+    case link
 }
 
 enum FluidButtonSize: Equatable {
@@ -29,21 +71,41 @@ enum FluidButtonSize: Equatable {
     case medium
     case large
 
+    /// Board sizes strip: 24 · 28 · 34 · 40.
     var controlHeight: CGFloat {
         switch self {
-        case .compact:
-            return 34
-        case .small:
-            return 32
-        case .medium:
-            return 36
-        case .large:
-            return 44
+        case .compact: return 24
+        case .small: return 28
+        case .medium: return 34
+        case .large: return 40
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .compact: return 10
+        case .small: return 14
+        case .medium: return 18
+        case .large: return 24
+        }
+    }
+
+    var labelSize: CGFloat {
+        switch self {
+        case .compact: return 11
+        case .small: return 12
+        case .medium: return 13
+        case .large: return 15
         }
     }
 
     var accentCompact: Bool {
         self == .small || self == .compact
+    }
+
+    static func nearest(to height: CGFloat) -> FluidButtonSize {
+        let all: [FluidButtonSize] = [.compact, .small, .medium, .large]
+        return all.min(by: { abs($0.controlHeight - height) < abs($1.controlHeight - height) }) ?? .medium
     }
 }
 
@@ -68,21 +130,29 @@ extension View {
         size: FluidButtonSize = .medium,
         isRecording: Bool = false
     ) -> some View {
+        // Our own ring replaces the system one, so the two never double up.
+        let button = self.focusEffectDisabled()
+
         switch role {
         case .primary:
-            self.buttonStyle(PremiumButtonStyle(isRecording: isRecording, height: size.controlHeight))
+            button.buttonStyle(PremiumButtonStyle(isRecording: isRecording, height: size.controlHeight))
         case .secondary:
-            self.buttonStyle(SecondaryButtonStyle(height: size.controlHeight))
+            button.buttonStyle(SecondaryButtonStyle(height: size.controlHeight))
         case .glass:
-            self.buttonStyle(GlassButtonStyle(height: size.controlHeight))
+            button.buttonStyle(GlassButtonStyle(height: size.controlHeight))
         case .compact:
-            self.buttonStyle(CompactButtonStyle(height: size.controlHeight))
+            button.buttonStyle(CompactButtonStyle(height: size.controlHeight))
         case .accent:
-            self.buttonStyle(AccentButtonStyle(compact: size.accentCompact))
+            button.buttonStyle(AccentButtonStyle(compact: size.accentCompact))
         case .destructive:
-            self.buttonStyle(AccentButtonStyle(compact: size.accentCompact, tone: Color(nsColor: .systemRed)))
+            button.buttonStyle(AccentButtonStyle(
+                compact: size.accentCompact,
+                tone: BasicsTokens.Semantic.danger
+            ))
         case .inline:
-            self.buttonStyle(InlineButtonStyle())
+            button.buttonStyle(InlineButtonStyle())
+        case .link:
+            button.buttonStyle(PlainLinkButtonStyle(size: size))
         }
     }
 
@@ -92,15 +162,21 @@ extension View {
         foreground: Color? = nil,
         borderColor: Color? = nil
     ) -> some View {
-        self.buttonStyle(CompactButtonStyle(
-            isReady: isReady,
-            foreground: foreground,
-            borderColor: borderColor,
-            height: size.controlHeight
-        ))
+        self.focusEffectDisabled()
+            .buttonStyle(CompactButtonStyle(
+                isReady: isReady,
+                foreground: foreground,
+                borderColor: borderColor,
+                height: size.controlHeight
+            ))
     }
 }
 
+// MARK: - List and nav row surface
+
+/// Board § Focus · list and nav rows. Selection is a brandSoft fill with brand
+/// text; focus is the ring on top of it. A row can be both at once. Rows do not
+/// lift, glow or scale — that reading is reserved for cards and buttons.
 private struct FluidControlSurfaceModifier: ViewModifier {
     @Environment(\.theme) private var theme
     let isSelected: Bool
@@ -108,100 +184,132 @@ private struct FluidControlSurfaceModifier: ViewModifier {
     let tone: Color
     let cornerRadius: CGFloat
 
+    private var fill: Color {
+        if self.isSelected { return self.tone.opacity(0.10) }
+        if self.isHovered { return self.theme.palette.sidebarBackground }
+        return .clear
+    }
+
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: self.cornerRadius, style: .continuous)
-        let fillOpacity = self.isSelected ? 0.96 : (self.isHovered ? 0.42 : 0)
-        let shineOpacity = self.isSelected ? 0.14 : (self.isHovered ? 0.07 : 0)
-        let strokeColor = self.isSelected
-            ? self.tone.opacity(0.24)
-            : (self.isHovered ? self.theme.palette.cardBorder.opacity(0.28) : .clear)
 
         content
-            .background(
-                shape
-                    .fill(self.theme.palette.cardBackground.opacity(fillOpacity))
-                    .overlay(
-                        LinearGradient(
-                            colors: [.white.opacity(shineOpacity), .clear],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(shape)
-                    )
-                    .overlay(shape.stroke(strokeColor, lineWidth: 1))
-                    .shadow(
-                        color: .black.opacity(self.isSelected ? 0.16 : (self.isHovered ? 0.08 : 0)),
-                        radius: self.isSelected || self.isHovered ? 5 : 0,
-                        y: self.isSelected || self.isHovered ? 1 : 0
-                    )
-            )
-            .scaleEffect(self.isHovered && !self.isSelected ? FluidInteractionVisuals.hoverScale : 1)
+            .background(shape.fill(self.fill))
             .animation(FluidInteractionVisuals.hoverAnimation, value: self.isSelected)
             .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
     }
 }
 
-// MARK: - Primary (Prominent) Button
+// MARK: - Filled pill (primary / accent / destructive)
 
-struct GlassButtonStyle: ButtonStyle {
-    var height: CGFloat? = nil
+/// One filled button per region. Rest brand, hover green600, pressed green700.
+private struct BasicsFilledPill: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        GlassButton(configuration: configuration, height: self.height)
+    let configuration: ButtonStyle.Configuration
+    let size: FluidButtonSize
+    let tone: Color
+
+    private var fill: Color {
+        guard self.isEnabled else { return self.theme.palette.sidebarBackground }
+        if self.configuration.isPressed { return self.tone.blended(withBlack: 0.28) }
+        if self.isHovered { return self.tone.blended(withBlack: 0.14) }
+        return self.tone
     }
 
-    private struct GlassButton: View {
-        @Environment(\.theme) private var theme
-        @State private var isHovered = false
-        let configuration: ButtonStyle.Configuration
-        let height: CGFloat?
+    private var labelColor: Color {
+        self.isEnabled ? .white : self.theme.palette.tertiaryText
+    }
 
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-        }
-
-        var body: some View {
-            self.configuration.label
-                .fontWeight(.semibold)
-                .padding(.horizontal, self.theme.metrics.spacing.lg)
-                .padding(.vertical, self.theme.metrics.spacing.sm)
-                .frame(height: self.height ?? 36)
-                .foregroundStyle(self.theme.palette.primaryText)
-                .background(self.theme.materials.card, in: self.shape)
-                .background(
-                    self.shape
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            self.shape.stroke(
-                                self.theme.palette.cardBorder.opacity(self.isHovered ? 0.45 : 0.25),
-                                lineWidth: 1
-                            )
-                        )
-                )
-                .overlay(
-                    self.shape
-                        .stroke(self.theme.palette.accent.opacity(self.isHovered ? 0.25 : 0.1), lineWidth: 1)
-                        .blendMode(.plusLighter)
-                )
-                .shadow(
-                    color: self.theme.palette.cardBorder.opacity(self.isHovered ? 0.45 : 0.22),
-                    radius: self.isHovered ? self.theme.metrics.cardShadow.radius : max(self.theme.metrics.cardShadow.radius - 3, 2),
-                    x: 0,
-                    y: self.isHovered ? self.theme.metrics.cardShadow.y : self.theme.metrics.cardShadow.y - 2
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
-                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
-                .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
-                .onHover { self.isHovered = $0 }
-        }
+    var body: some View {
+        self.configuration.label
+            .basicsButtonLabel(self.size.labelSize)
+            .foregroundStyle(self.labelColor)
+            .padding(.horizontal, self.size.horizontalPadding)
+            .frame(height: self.size.controlHeight)
+            .background(Capsule().fill(self.fill))
+            .overlay {
+                if !self.isEnabled {
+                    Capsule().stroke(self.theme.palette.cardBorder, lineWidth: 1)
+                }
+            }
+            .basicsFocusRing(self.isFocused, cornerRadius: self.size.controlHeight / 2)
+            .scaleEffect(FluidInteractionVisuals.scale(
+                isPressed: self.configuration.isPressed,
+                isHovered: self.isHovered && self.isEnabled
+            ))
+            .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
+            .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
+            .onHover { self.isHovered = $0 }
     }
 }
 
-// MARK: - Primary Accent Button
+// MARK: - Outlined pill (secondary / glass / compact)
+
+/// Everything reversible — Change, Import, Export, Choose file.
+private struct BasicsOutlinedPill: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    let configuration: ButtonStyle.Configuration
+    let size: FluidButtonSize
+    /// A brand outline instead of a neutral one — the "this is the next thing to
+    /// press" state the pickers already track.
+    let isBrandOutlined: Bool
+    let foreground: Color?
+    let borderColor: Color?
+
+    private var fill: Color {
+        if !self.isEnabled { return self.theme.palette.sidebarBackground }
+        if self.configuration.isPressed { return self.theme.palette.cardBorder }
+        if self.isHovered { return self.theme.palette.sidebarBackground }
+        return self.theme.palette.cardBackground
+    }
+
+    private var border: Color {
+        if let borderColor = self.borderColor { return borderColor }
+        if !self.isEnabled { return self.theme.palette.cardBorder }
+        if self.isBrandOutlined { return self.theme.palette.accent.opacity(0.45) }
+        return BasicsBorder.strong(self.theme, self.colorScheme)
+    }
+
+    private var labelColor: Color {
+        if !self.isEnabled { return self.theme.palette.tertiaryText }
+        if let foreground = self.foreground { return foreground }
+        if self.isBrandOutlined { return self.theme.palette.accent }
+        return self.theme.palette.primaryText
+    }
+
+    var body: some View {
+        self.configuration.label
+            .basicsButtonLabel(self.size.labelSize)
+            .foregroundStyle(self.labelColor)
+            .padding(.horizontal, self.size.horizontalPadding)
+            .frame(height: self.size.controlHeight)
+            .background(Capsule().fill(self.fill))
+            .overlay(Capsule().stroke(self.border, lineWidth: 1))
+            .basicsFocusRing(self.isFocused, cornerRadius: self.size.controlHeight / 2)
+            .scaleEffect(FluidInteractionVisuals.scale(
+                isPressed: self.configuration.isPressed,
+                isHovered: self.isHovered && self.isEnabled
+            ))
+            .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
+            .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
+            .onHover { self.isHovered = $0 }
+    }
+}
+
+// MARK: - Primary
 
 struct PremiumButtonStyle: ButtonStyle {
     var isRecording: Bool = false
-    var height: CGFloat = 44
+    var height: CGFloat = 40
 
     func makeBody(configuration: Configuration) -> some View {
         PrimaryButton(configuration: configuration, isRecording: self.isRecording, height: self.height)
@@ -209,187 +317,73 @@ struct PremiumButtonStyle: ButtonStyle {
 
     private struct PrimaryButton: View {
         @Environment(\.theme) private var theme
-        @State private var isHovered = false
         let configuration: ButtonStyle.Configuration
         let isRecording: Bool
         let height: CGFloat
 
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.lg, style: .continuous)
-        }
-
-        private var baseGradient: LinearGradient {
-            if self.isRecording {
-                return LinearGradient(
-                    colors: [
-                        Color(nsColor: .systemRed),
-                        Color(nsColor: .systemRed).opacity(0.8),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-
-            return LinearGradient(
-                colors: [
-                    self.theme.palette.accent.opacity(0.95),
-                    self.theme.palette.accent.opacity(0.75),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+        var body: some View {
+            BasicsFilledPill(
+                configuration: self.configuration,
+                size: .nearest(to: self.height),
+                // Recording is a stop-this state: it takes danger, not brand.
+                tone: self.isRecording ? BasicsTokens.Semantic.danger : self.theme.palette.accent
             )
         }
-
-        var body: some View {
-            self.configuration.label
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity)
-                .frame(height: self.height)
-                .foregroundStyle(self.isRecording ? Color.white : self.theme.palette.primaryText)
-                .background(
-                    self.shape
-                        .fill(self.baseGradient)
-                        .overlay(
-                            self.shape.stroke(
-                                Color.white.opacity(self.isHovered ? 0.35 : 0.2),
-                                lineWidth: 1
-                            )
-                        )
-                )
-                .shadow(
-                    color: (self.isRecording ? Color(nsColor: .systemRed) : self.theme.palette.accent)
-                        .opacity(self.isHovered ? 0.45 : 0.25),
-                    radius: self.isHovered ? self.theme.metrics.elevatedCardShadow.radius : max(self.theme.metrics.cardShadow.radius - 2, 2),
-                    x: 0,
-                    y: self.isHovered ? self.theme.metrics.elevatedCardShadow.y : self.theme.metrics.cardShadow.y
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
-                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
-                .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
-                .onHover { self.isHovered = $0 }
-        }
     }
 }
 
-// MARK: - Secondary Button
+// MARK: - Secondary
 
 struct SecondaryButtonStyle: ButtonStyle {
-    var height: CGFloat = 42
+    var height: CGFloat = 34
 
     func makeBody(configuration: Configuration) -> some View {
-        SecondaryButton(configuration: configuration, height: self.height)
-    }
-
-    private struct SecondaryButton: View {
-        @Environment(\.theme) private var theme
-        @State private var isHovered = false
-        let configuration: ButtonStyle.Configuration
-        let height: CGFloat
-
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.lg, style: .continuous)
-        }
-
-        var body: some View {
-            self.configuration.label
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity)
-                .frame(height: self.height)
-                .foregroundStyle(self.theme.palette.primaryText)
-                .background(self.theme.materials.card, in: self.shape)
-                .background(
-                    self.shape
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            self.shape.stroke(
-                                self.theme.palette.cardBorder.opacity(self.isHovered ? 0.45 : 0.25),
-                                lineWidth: 1
-                            )
-                        )
-                )
-                .shadow(
-                    color: self.theme.palette.cardBorder.opacity(self.isHovered ? 0.35 : 0.15),
-                    radius: self.isHovered ? self.theme.metrics.cardShadow.radius : max(self.theme.metrics.cardShadow.radius - 4, 1),
-                    x: 0,
-                    y: self.isHovered ? self.theme.metrics.cardShadow.y : self.theme.metrics.cardShadow.y - 2
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
-                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
-                .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
-                .onHover { self.isHovered = $0 }
-        }
+        BasicsOutlinedPill(
+            configuration: configuration,
+            size: .nearest(to: self.height),
+            isBrandOutlined: false,
+            foreground: nil,
+            borderColor: nil
+        )
     }
 }
 
-// MARK: - Compact Button
+/// Was a translucent "glass" button. There is no glass in the Basics system — it
+/// resolves to the same outlined pill as Secondary so the two can never drift.
+struct GlassButtonStyle: ButtonStyle {
+    var height: CGFloat? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        BasicsOutlinedPill(
+            configuration: configuration,
+            size: .nearest(to: self.height ?? 34),
+            isBrandOutlined: false,
+            foreground: nil,
+            borderColor: nil
+        )
+    }
+}
+
+// MARK: - Compact
 
 struct CompactButtonStyle: ButtonStyle {
     var isReady: Bool = false
     var foreground: Color? = nil
     var borderColor: Color? = nil
-    var height: CGFloat = 34
+    var height: CGFloat = 24
 
     func makeBody(configuration: Configuration) -> some View {
-        CompactButton(
+        BasicsOutlinedPill(
             configuration: configuration,
-            isReady: self.isReady,
+            size: .nearest(to: self.height),
+            isBrandOutlined: self.isReady,
             foreground: self.foreground,
-            borderColor: self.borderColor,
-            height: self.height
+            borderColor: self.borderColor
         )
-    }
-
-    private struct CompactButton: View {
-        @Environment(\.theme) private var theme
-        @State private var isHovered = false
-        let configuration: ButtonStyle.Configuration
-        let isReady: Bool
-        let foreground: Color?
-        let borderColor: Color?
-        let height: CGFloat
-
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-        }
-
-        var body: some View {
-            let border = self.borderColor ?? (self.isReady ? self.theme.palette.accent : self.theme.palette.cardBorder)
-            let foregroundColor = self.foreground ?? self.theme.palette.primaryText
-            let borderOpacity = self.borderColor == nil
-                ? (self.isHovered ? 0.56 : 0.38)
-                : (self.isHovered ? 0.64 : 0.48)
-
-            self.configuration.label
-                .fontWeight(.medium)
-                .padding(.horizontal, self.theme.metrics.spacing.md)
-                .frame(height: self.height)
-                .foregroundStyle(foregroundColor)
-                .background(self.theme.materials.card, in: self.shape)
-                .background(
-                    self.shape
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            self.shape.stroke(
-                                border.opacity(borderOpacity),
-                                lineWidth: 1
-                            )
-                        )
-                )
-                .shadow(
-                    color: border.opacity(self.isHovered ? 0.18 : 0.06),
-                    radius: self.isHovered ? 4 : 1.5,
-                    x: 0,
-                    y: self.isHovered ? 1 : 0.5
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
-                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
-                .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
-                .onHover { self.isHovered = $0 }
-        }
     }
 }
 
-// MARK: - Accent Filled Button (Solid accent background)
+// MARK: - Accent / destructive filled
 
 struct AccentButtonStyle: ButtonStyle {
     var compact: Bool = false
@@ -401,88 +395,68 @@ struct AccentButtonStyle: ButtonStyle {
 
     private struct AccentButton: View {
         @Environment(\.theme) private var theme
-        @State private var isHovered = false
         let configuration: ButtonStyle.Configuration
         let compact: Bool
         let tone: Color?
 
-        private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.compact ? 8 : self.theme.metrics.corners.md, style: .continuous)
-        }
-
         var body: some View {
-            let tone = self.tone ?? self.theme.palette.accent
-            self.configuration.label
-                .fontWeight(.semibold)
-                .padding(.horizontal, self.compact ? 12 : self.theme.metrics.spacing.lg)
-                .padding(.vertical, self.compact ? 8 : self.theme.metrics.spacing.md)
-                .frame(minHeight: self.compact ? 32 : 36)
-                .foregroundStyle(Color.white)
-                .background(
-                    self.shape
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    tone,
-                                    tone.opacity(0.85),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                )
-                .overlay(
-                    self.shape
-                        .stroke(Color.white.opacity(self.isHovered ? 0.3 : 0.15), lineWidth: 1)
-                )
-                .shadow(
-                    color: tone.opacity(self.isHovered ? 0.5 : 0.3),
-                    radius: self.isHovered ? 6 : 4,
-                    x: 0,
-                    y: self.isHovered ? 3 : 2
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
-                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
-                .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
-                .onHover { self.isHovered = $0 }
+            BasicsFilledPill(
+                configuration: self.configuration,
+                size: self.compact ? .small : .medium,
+                tone: self.tone ?? self.theme.palette.accent
+            )
         }
     }
 }
 
-// MARK: - Inline Button
+// MARK: - Soft (inline invitation)
 
+/// Board § Buttons · Soft. Inline invitations inside a row — Configure, Grant,
+/// Try it. brandSoft ground, brand label, 28 tall.
 struct InlineButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        InlineButton(configuration: configuration)
+        SoftButton(configuration: configuration)
     }
 
-    private struct InlineButton: View {
+    private struct SoftButton: View {
         @Environment(\.theme) private var theme
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.isEnabled) private var isEnabled
         @State private var isHovered = false
         let configuration: ButtonStyle.Configuration
 
-        private var shape: Capsule {
-            Capsule()
+        private var fill: Color {
+            let accent = self.theme.palette.accent
+            if !self.isEnabled { return self.theme.palette.sidebarBackground }
+            if self.configuration.isPressed { return accent.opacity(0.26) }
+            if self.isHovered { return accent.opacity(0.18) }
+            return accent.opacity(0.10)
+        }
+
+        private var labelColor: Color {
+            if !self.isEnabled { return self.theme.palette.tertiaryText }
+            if self.configuration.isPressed { return BasicsTokens.Green.g700 }
+            if self.isHovered { return BasicsTokens.Green.g600 }
+            return self.theme.palette.accent
         }
 
         var body: some View {
             self.configuration.label
-                .font(.caption)
-                .fontWeight(.medium)
-                .padding(.horizontal, self.theme.metrics.spacing.md)
-                .padding(.vertical, self.theme.metrics.spacing.xs)
-                .foregroundStyle(Color.white)
-                .background(
-                    self.shape
-                        .fill(self.theme.palette.accent.opacity(self.isHovered ? 0.9 : 0.8))
-                )
-                .shadow(
-                    color: self.theme.palette.accent.opacity(self.isHovered ? 0.45 : 0.25),
-                    radius: self.isHovered ? 6 : 3,
-                    x: 0,
-                    y: self.isHovered ? 3 : 1
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
+                .basicsButtonLabel(12)
+                .foregroundStyle(self.labelColor)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(Capsule().fill(self.fill))
+                .overlay {
+                    if !self.isEnabled {
+                        Capsule().stroke(self.theme.palette.cardBorder, lineWidth: 1)
+                    }
+                }
+                .basicsFocusRing(self.isFocused, cornerRadius: 14)
+                .scaleEffect(FluidInteractionVisuals.scale(
+                    isPressed: self.configuration.isPressed,
+                    isHovered: self.isHovered && self.isEnabled
+                ))
                 .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
                 .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
                 .onHover { self.isHovered = $0 }
@@ -490,8 +464,53 @@ struct InlineButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Glass Toggle Style (now uses native switch for consistency)
+// MARK: - Plain link
 
+/// Board § Buttons · plain link. No chrome at all; the underline is the hover.
+struct PlainLinkButtonStyle: ButtonStyle {
+    var size: FluidButtonSize = .medium
+
+    func makeBody(configuration: Configuration) -> some View {
+        LinkButton(configuration: configuration, size: self.size)
+    }
+
+    private struct LinkButton: View {
+        @Environment(\.theme) private var theme
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var isHovered = false
+        let configuration: ButtonStyle.Configuration
+        let size: FluidButtonSize
+
+        private var labelColor: Color {
+            if !self.isEnabled { return self.theme.palette.tertiaryText }
+            if self.configuration.isPressed { return BasicsTokens.Green.g700 }
+            if self.isHovered { return BasicsTokens.Green.g600 }
+            return self.theme.palette.accent
+        }
+
+        private var isUnderlined: Bool {
+            self.isEnabled && (self.isHovered || self.configuration.isPressed)
+        }
+
+        var body: some View {
+            self.configuration.label
+                .basicsButtonLabel(self.size.labelSize)
+                .foregroundStyle(self.labelColor)
+                .underline(self.isUnderlined)
+                .frame(height: self.size.controlHeight)
+                .contentShape(Rectangle())
+                .basicsFocusRing(self.isFocused, cornerRadius: BasicsControl.radius)
+                .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
+                .onHover { self.isHovered = $0 }
+        }
+    }
+}
+
+// MARK: - Toggle
+
+/// Board § Focus · toggle. 44 × 26 pill, brand when on, borderStrong when off,
+/// flat 20px white knob — no gradient, no inner shadow.
 struct GlassToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         ToggleBody(configuration: configuration)
@@ -499,131 +518,168 @@ struct GlassToggleStyle: ToggleStyle {
 
     private struct ToggleBody: View {
         @Environment(\.theme) private var theme
+        @Environment(\.colorScheme) private var colorScheme
+        @Environment(\.isEnabled) private var isEnabled
+        @FocusState private var isFocused: Bool
         let configuration: ToggleStyle.Configuration
 
         var body: some View {
-            HStack {
+            HStack(spacing: 12) {
                 self.configuration.label
+                    .basicsLabel(13)
                     .foregroundStyle(self.theme.palette.primaryText)
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                Toggle("", isOn: self.configuration.$isOn)
-                    .toggleStyle(.switch)
-                    .tint(self.theme.palette.accent)
-                    .labelsHidden()
+                Button {
+                    self.configuration.isOn.toggle()
+                } label: {
+                    Capsule()
+                        .fill(
+                            self.configuration.isOn
+                                ? self.theme.palette.accent
+                                : BasicsBorder.strong(self.theme, self.colorScheme)
+                        )
+                        .frame(width: 44, height: 26)
+                        .overlay(alignment: self.configuration.isOn ? .trailing : .leading) {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 20, height: 20)
+                                .padding(3)
+                        }
+                }
+                .buttonStyle(.plain)
+                .focusable(self.isEnabled)
+                .focused(self.$isFocused)
+                .focusEffectDisabled()
+                .basicsFocusRing(self.isFocused, cornerRadius: 13)
+                .opacity(self.isEnabled ? 1 : 0.5)
+                .animation(.easeOut(duration: 0.18), value: self.configuration.isOn)
+                .accessibilityAddTraits(self.configuration.isOn ? [.isSelected] : [])
             }
         }
     }
 }
 
-// MARK: - Native Form Row Style
+// MARK: - Form row
 
+/// A row that reads as a single field. Settings themselves sit directly on the
+/// surface separated by hairlines — this is the grouped case.
 struct FormRowStyle: ViewModifier {
     @Environment(\.theme) private var theme
 
     func body(content: Content) -> some View {
         let row = self.theme.metrics.formRow
-        let shape = RoundedRectangle(cornerRadius: row.cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
 
         content
             .padding(.horizontal, row.horizontalPadding)
             .padding(.vertical, row.verticalPadding)
             .background(
                 shape
-                    .fill(self.theme.materials.formRow.opacity(row.materialOpacity))
-                    .overlay(
-                        shape.stroke(self.theme.palette.cardBorder.opacity(row.borderOpacity), lineWidth: 1)
-                    )
+                    .fill(self.theme.palette.cardBackground)
+                    .overlay(shape.stroke(self.theme.palette.cardBorder, lineWidth: 1))
             )
     }
 }
 
-// MARK: - Searchable Picker Chrome
+// MARK: - Searchable picker chrome
 
+/// Board § Focus · select. The chevron takes the brand colour while the menu is
+/// reachable from the keyboard.
 struct FluidPickerDisclosureIcon: View {
     @Environment(\.theme) private var theme
+    @Environment(\.isFocused) private var isFocused
     var backgroundOpacity: Double
 
     var body: some View {
         let picker = self.theme.metrics.pickerControl
 
         Image(systemName: "chevron.down")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(
+                self.isFocused ? self.theme.palette.accent : self.theme.palette.secondaryText
+            )
             .frame(width: picker.disclosureSize, height: picker.disclosureSize)
             .background(
-                Circle()
-                    .fill(self.theme.palette.cardBackground.opacity(self.backgroundOpacity))
-                    .overlay(
-                        Circle()
-                            .stroke(self.theme.palette.cardBorder.opacity(picker.disclosureBorderOpacity), lineWidth: 1)
-                    )
+                Circle().fill(self.theme.palette.sidebarBackground.opacity(self.backgroundOpacity))
             )
     }
 }
 
 struct SearchablePickerControlChrome: ViewModifier {
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isFocused) private var isFocused
     let width: CGFloat?
     let height: CGFloat?
+    /// The control floats over content rather than sitting in a row — it gets the
+    /// card's soft shadow pair so it reads as raised.
     let usesMaterial: Bool
     let showsShadow: Bool
 
-    @ViewBuilder
+    private var shadows: [BasicsShadow] {
+        let ink = BasicsTokens.Ink.foreground
+        if self.usesMaterial {
+            return [
+                BasicsShadow(color: ink.opacity(0.04), radius: 1, y: 1),
+                BasicsShadow(color: ink.opacity(0.04), radius: 12, y: 8),
+            ]
+        }
+        if self.showsShadow {
+            return [BasicsShadow(color: ink.opacity(0.05), radius: 1.5, y: 1)]
+        }
+        return []
+    }
+
     func body(content: Content) -> some View {
         let picker = self.theme.metrics.pickerControl
-        let shape = RoundedRectangle(cornerRadius: picker.cornerRadius, style: .continuous)
-        let control = content
+        let shape = RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
+
+        content
             .frame(width: self.width, alignment: .leading)
             .frame(maxWidth: self.width == nil ? .infinity : nil, alignment: .leading)
             .padding(.horizontal, picker.horizontalPadding)
             .padding(.vertical, picker.verticalPadding)
             .frame(height: self.height)
             .contentShape(Rectangle())
-
-        if self.usesMaterial {
-            control
-                .background(self.theme.materials.card, in: shape)
-                .background(self.pickerSurface(shape, picker: picker))
-                .shadow(
-                    color: self.theme.palette.cardBorder.opacity(self.showsShadow ? 0.18 : 0),
-                    radius: self.showsShadow ? 3 : 0,
-                    x: 0,
-                    y: self.showsShadow ? 1 : 0
-                )
-        } else {
-            control
-                .background(self.pickerSurface(shape, picker: picker))
-        }
-    }
-
-    private func pickerSurface(
-        _ shape: RoundedRectangle,
-        picker: AppTheme.Metrics.PickerControl
-    ) -> some View {
-        shape
-            .fill(self.theme.palette.cardBackground)
-            .overlay(
-                shape.stroke(self.theme.palette.cardBorder.opacity(picker.borderOpacity), lineWidth: 1)
+            .background(
+                shape
+                    .fill(self.theme.palette.cardBackground)
+                    .overlay(
+                        shape.stroke(
+                            self.isFocused
+                                ? self.theme.palette.accent
+                                : BasicsBorder.strong(self.theme, self.colorScheme),
+                            lineWidth: 1
+                        )
+                    )
+                    .basicsShadows(self.shadows)
             )
+            .basicsFocusRing(self.isFocused, cornerRadius: BasicsControl.radius)
     }
 }
 
 struct SearchablePickerSearchFieldChrome: ViewModifier {
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isFocused) private var isFocused
 
     func body(content: Content) -> some View {
-        let picker = self.theme.metrics.pickerControl
-        let shape = RoundedRectangle(cornerRadius: picker.cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
 
         content
             .padding(self.theme.metrics.spacing.sm)
             .background(
                 shape
-                    .fill(self.theme.palette.contentBackground)
+                    .fill(self.theme.palette.cardBackground)
                     .overlay(
-                        shape.stroke(self.theme.palette.cardBorder.opacity(picker.searchBorderOpacity), lineWidth: 1)
+                        shape.stroke(
+                            self.isFocused
+                                ? self.theme.palette.accent
+                                : BasicsBorder.strong(self.theme, self.colorScheme),
+                            lineWidth: 1
+                        )
                     )
             )
     }
@@ -663,15 +719,15 @@ private struct SearchablePickerSelectedRowBackground: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background(
-            self.isSelected
-                ? self.theme.palette.accent.opacity(self.theme.metrics.pickerControl.selectedRowOpacity)
-                : Color.clear
+            self.isSelected ? self.theme.palette.accent.opacity(0.10) : Color.clear
         )
     }
 }
 
-// MARK: - Square Icon Button Style (no horizontal padding, fixed square)
+// MARK: - Icon only
 
+/// Board § Buttons · icon only. 28 × 28, radius 8. Copy and play on a history
+/// row — they stay invisible until the row is hovered, which is the row's job.
 struct SquareIconButtonStyle: ButtonStyle {
     var foreground: Color? = nil
     var borderColor: Color? = nil
@@ -686,45 +742,67 @@ struct SquareIconButtonStyle: ButtonStyle {
 
     private struct SquareIconButton: View {
         @Environment(\.theme) private var theme
+        @Environment(\.colorScheme) private var colorScheme
+        @Environment(\.isFocused) private var isFocused
+        @Environment(\.isEnabled) private var isEnabled
         @State private var isHovered = false
         let configuration: ButtonStyle.Configuration
         let foreground: Color?
         let borderColor: Color?
 
         private var shape: RoundedRectangle {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
+            RoundedRectangle(cornerRadius: BasicsControl.radius, style: .continuous)
+        }
+
+        private var isActive: Bool { self.isHovered && self.isEnabled }
+
+        private var labelColor: Color {
+            if !self.isEnabled { return self.theme.palette.tertiaryText }
+            if let foreground = self.foreground { return foreground }
+            return self.isActive ? self.theme.palette.primaryText : self.theme.palette.secondaryText
         }
 
         var body: some View {
-            let border = self.borderColor ?? self.theme.palette.cardBorder
-            let borderOpacity = self.borderColor == nil
-                ? (self.isHovered ? 0.8 : 0.6)
-                : (self.isHovered ? 0.84 : 0.68)
-            let foregroundColor = self.foreground ?? self.theme.palette.primaryText
+            let active = self.isActive
+            let fill = active || self.configuration.isPressed
+                ? self.theme.palette.sidebarBackground
+                : self.theme.palette.cardBackground
+            let border = self.borderColor
+                ?? (active
+                    ? BasicsBorder.strong(self.theme, self.colorScheme)
+                    : self.theme.palette.cardBorder)
 
             self.configuration.label
-                .foregroundStyle(foregroundColor)
-                .background(self.theme.materials.card, in: self.shape)
-                .background(
-                    self.shape
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            self.shape.stroke(
-                                border.opacity(borderOpacity),
-                                lineWidth: 1
-                            )
-                        )
-                )
-                .shadow(
-                    color: border.opacity(self.isHovered ? 0.18 : 0.06),
-                    radius: self.isHovered ? 4 : 1.5,
-                    x: 0,
-                    y: self.isHovered ? 1 : 0.5
-                )
-                .scaleEffect(FluidInteractionVisuals.scale(isPressed: self.configuration.isPressed, isHovered: self.isHovered))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(self.labelColor)
+                .frame(width: 28, height: 28)
+                .background(self.shape.fill(fill))
+                .overlay(self.shape.stroke(border, lineWidth: 1))
+                .basicsFocusRing(self.isFocused, cornerRadius: BasicsControl.radius)
+                .scaleEffect(FluidInteractionVisuals.scale(
+                    isPressed: self.configuration.isPressed,
+                    isHovered: active
+                ))
                 .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
                 .animation(FluidInteractionVisuals.pressedAnimation, value: self.configuration.isPressed)
                 .onHover { self.isHovered = $0 }
         }
+    }
+}
+
+// MARK: - Colour helpers
+
+private extension Color {
+    /// The hover / pressed steps on a filled pill: brand → green600 → green700 is
+    /// a straight 14% / 28% walk toward black, so a custom tone (danger, or a
+    /// user-chosen accent) darkens by exactly the same amount.
+    func blended(withBlack amount: Double) -> Color {
+        let base = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.black
+        return Color(
+            red: Double(base.redComponent) * (1 - amount),
+            green: Double(base.greenComponent) * (1 - amount),
+            blue: Double(base.blueComponent) * (1 - amount),
+            opacity: Double(base.alphaComponent)
+        )
     }
 }

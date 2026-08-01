@@ -218,3 +218,92 @@ extension View {
         self.font(BasicsTokens.mono(size, weight))
     }
 }
+
+// MARK: - Dark ramp (floating overlays only)
+
+/// The overlays — the dictation panel, its three menus, and the dictionary
+/// correction panel — are the only surfaces in the app that are always dark.
+/// They float over whatever the user is actually doing, so they never follow the
+/// light page palette and never follow the theme preference.
+///
+/// `green500` is the logo green and is correct on paper; on a `#0E120F` ground it
+/// drops under 3:1, so the dark ramp steps up to `g400` and uses `g300` for the
+/// text that sits inside an accent-tinted fill. Every value below is read off the
+/// Paper boards `17 — Dictation overlay · dark` and `18 — Correction overlays · dark`.
+extension BasicsTokens {
+    enum Dark {
+        // MARK: Surfaces
+
+        /// The board ground. Also the ink colour for text sitting ON the accent.
+        static let ground = Color(hex: "#0E120F")!
+        /// The dictation panel at small / medium / large.
+        static let card = Color(hex: "#151A17")!
+        /// The pill, and the correction panel — one step below `card` so the
+        /// 1px gradient rim reads at 100pt wide.
+        static let panel = Color(hex: "#0B0E0C")!
+        /// Menu popovers, which sit ABOVE a panel and so have to lift off it.
+        static let menu = Color(hex: "#1A201C")!
+
+        // MARK: Lines
+
+        /// The 1px rim around every dark panel.
+        static let border = Color.white.opacity(0.10)
+        /// Separators inside a panel.
+        static let hairline = Color.white.opacity(0.06)
+
+        // MARK: Ink
+
+        static let ink = Color(hex: "#F1F4F2")!
+        /// Chip labels and secondary values.
+        static let inkSubtle = Color(hex: "#DCE2DE")!
+        static let muted = Color(hex: "#949A96")!
+        /// Micro-labels, mono annotations, helper sentences.
+        static let faint = Color(hex: "#8A918C")!
+
+        // MARK: Accent
+
+        static let accent = Green.g400
+        /// Accent text on an accent-tinted fill (`g300`, lifted for contrast).
+        static let accentInk = Color(hex: "#8FD0AC")!
+        static let accentSoft = Green.g400.opacity(0.14)
+        static let accentStrong = Green.g400.opacity(0.16)
+        static let accentBorder = Green.g400.opacity(0.32)
+
+        // MARK: Semantic
+
+        /// Warning on dark — the light-page `#EA9602` goes muddy here.
+        static let warning = Color(hex: "#EAB146")!
+        static let danger = Color(hex: "#E0645F")!
+
+        // MARK: Chips
+
+        static let chipFill = Color.white.opacity(0.07)
+        static let chipFillHover = Color.white.opacity(0.12)
+        static let chipBorder = Color.white.opacity(0.09)
+        static let chipBorderHover = Color.white.opacity(0.16)
+        /// Menu row at rest / hovered.
+        static let rowHover = Color.white.opacity(0.08)
+        /// Round icon buttons (retry, dismiss, back).
+        static let iconButton = Color.white.opacity(0.12)
+
+        // MARK: Mode colours
+
+        /// Re-mapped onto the Basics ramp: the old overlay blues and reds were
+        /// off-brand. Dictate is the one green moment on this surface.
+        static let modeDictate = Green.g400
+        static let modeDictateInk = Color(hex: "#8FD0AC")!
+        static let modeEdit = Color(hex: "#7C9CE8")!
+        static let modeEditInk = Color(hex: "#A9C0F2")!
+        static let modeCommand = Color(hex: "#E0645F")!
+        static let modeCommandInk = Color(hex: "#F0A29E")!
+
+        // MARK: Waveform
+
+        /// Live bars in the pill, which has no mode label to carry the colour.
+        static let barPill = Color.white.opacity(0.88)
+        /// Bars while an AI pass is in flight.
+        static let barProcessing = Color.white.opacity(0.55)
+        /// Bars while the engine is still warming up.
+        static let barInert = Color.white.opacity(0.18)
+    }
+}

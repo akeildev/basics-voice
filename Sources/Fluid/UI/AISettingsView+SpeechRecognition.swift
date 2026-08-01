@@ -2,809 +2,858 @@
 //  AISettingsView+SpeechRecognition.swift
 //  fluid
 //
-//  Extracted from AISettingsView.swift to keep view body under lint limit.
+//  The Voice engine screen. Rebuilt against Basics boards 02b (model states) and
+//  02c (no active model + language popover): one card holding hairline-separated
+//  model rows in fixed lanes (indicator · content · size · action · delete), a
+//  stats panel with thin brand meters, and the custom-vocabulary strip.
+//
+//  Every value on screen comes from `SettingsStore.SpeechModel` or `ASRService`.
 //
 
 import SwiftUI
 
 extension VoiceEngineSettingsView {
-    // MARK: - Speech Recognition Card
+    // MARK: - Screen
 
     var speechRecognitionCard: some View {
-        let selectedModel = self.settings.selectedSpeechModel
-        let activeModel = selectedModel.isInstalled ? selectedModel : nil
-        let hasActiveModel = activeModel != nil
-        let otherModels = self.viewModel.filteredSpeechModels.filter { model in
-            guard let activeModel else { return true }
-            return model != activeModel
-        }
+        let activeModel = self.settings.selectedSpeechModel.isInstalled ? self.settings.selectedSpeechModel : nil
+        let listedModels = self.viewModel.filteredSpeechModels
+        let otherModels = listedModels.filter { $0 != activeModel }
 
-        return ThemedCard(hoverEffect: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                // Header
-                HStack(spacing: 10) {
-                    Image(systemName: "waveform")
-                        .font(.title2)
-                        .foregroundStyle(self.theme.palette.accent)
-                    Text("Voice Engine")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Spacer()
+        return VStack(alignment: .leading, spacing: 28) {
+            if let activeModel {
+                VStack(alignment: .leading, spacing: 14) {
+                    self.modelSectionHeader(title: "Speech model")
+                    self.modelListCard(models: [activeModel] + otherModels)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Active model")
+                        .basicsMicroLabel(11)
+                        .foregroundStyle(self.theme.palette.tertiaryText)
+                    self.noActiveModelCard
                 }
 
-                // Stats Panel - Dynamic bars that update based on selected model
-                self.modelStatsPanel
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(self.theme.palette.contentBackground.opacity(0.6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(self.theme.palette.cardBorder.opacity(0.3), lineWidth: 1)
-                            )
-                            .shadow(color: self.theme.metrics.cardShadow.color.opacity(self.theme.metrics.cardShadow.opacity), radius: self.theme.metrics.cardShadow.radius, x: self.theme.metrics.cardShadow.x, y: self.theme.metrics.cardShadow.y)
-                    )
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "info.circle")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                            Text("Click a row to preview. Press Activate to load the model.")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                            Spacer()
-                            Menu {
-                                ForEach(SpeechProviderFilter.allCases) { option in
-                                    Button(option.rawValue) {
-                                        self.viewModel.providerFilter = option
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                        .font(self.theme.typography.bodySmallStrong)
-                                    Text("Filter: \(self.viewModel.providerFilter.rawValue)")
-                                        .font(self.theme.typography.bodySmallStrong)
-                                }
-                                .foregroundStyle(self.voiceEngineTitleText)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 9)
-                                        .fill(self.theme.palette.cardBackground.opacity(0.8))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 9)
-                                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
-                                        )
-                                )
-                            }
-                            Menu {
-                                ForEach(ModelSortOption.allCases) { option in
-                                    Button(option.rawValue) {
-                                        self.viewModel.modelSortOption = option
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text("Sort by: \(self.viewModel.modelSortOption.rawValue)")
-                                        .font(self.theme.typography.bodySmallStrong)
-                                }
-                                .foregroundStyle(self.voiceEngineTitleText)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 9)
-                                        .fill(self.theme.palette.cardBackground.opacity(0.8))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 9)
-                                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
-                                        )
-                                )
-                            }
-                        }
-
-                        // Active + Other models list
-                        VStack(alignment: .leading, spacing: 10) {
-                            if let activeModel {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Active Model")
-                                        .font(self.theme.typography.sectionTitle)
-                                        .foregroundStyle(self.voiceEngineTitleText)
-                                    self.speechModelCard(for: activeModel)
-                                }
-                            } else {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Active Model")
-                                        .font(self.theme.typography.sectionTitle)
-                                        .foregroundStyle(self.voiceEngineTitleText)
-                                    Label("No active model yet. Download and activate one below.", systemImage: "arrow.down.circle")
-                                        .font(self.theme.typography.bodySmall)
-                                        .foregroundStyle(self.voiceEngineSecondaryText)
-                                }
-                            }
-
-                            Divider().padding(.vertical, 2)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(hasActiveModel ? "Other Models" : "Available Models")
-                                    .font(self.theme.typography.sectionTitle)
-                                    .foregroundStyle(self.voiceEngineTitleText)
-                                VStack(spacing: 8) {
-                                    ForEach(otherModels) { model in
-                                        self.speechModelCard(for: model)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(self.theme.palette.cardBackground.opacity(0.9))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(self.theme.palette.cardBorder.opacity(0.3), lineWidth: 1)
-                                )
-                                .shadow(color: self.theme.metrics.cardShadow.color.opacity(self.theme.metrics.cardShadow.opacity), radius: self.theme.metrics.cardShadow.radius, x: self.theme.metrics.cardShadow.x, y: self.theme.metrics.cardShadow.y)
-                        )
-
-                        Divider().padding(.vertical, 4)
-
-                        // Filler Words Section
-                        self.fillerWordsSection
-                    }
+                VStack(alignment: .leading, spacing: 14) {
+                    self.modelSectionHeader(title: "Available models")
+                    self.modelListCard(models: otherModels)
                 }
             }
-            .padding(14)
+
+            self.modelStatsPanel
+
+            self.fillerWordsSection
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onChange(of: self.viewModel.asr.showError) { _, isShowing in
+            guard isShowing else { return }
+            VoiceEngineActionLog.shared.noteErrorRaised(
+                title: self.viewModel.asr.errorTitle,
+                message: self.viewModel.asr.errorMessage
+            )
+        }
+        .onChange(of: self.viewModel.asr.isAsrReady) { _, isReady in
+            if isReady { VoiceEngineActionLog.shared.noteSettled() }
+        }
+        .onChange(of: self.viewModel.asr.downloadingModelId) { _, downloadingID in
+            // Download finished (or was cancelled) without raising — stop
+            // attributing any later error to it.
+            if downloadingID == nil, self.viewModel.asr.showError == false {
+                VoiceEngineActionLog.shared.noteSettled()
+            }
+        }
     }
 
-    /// Stats panel showing speed/accuracy bars that animate when model changes
+    // MARK: - Section header (label · busy note · filter · sort)
+
+    private func modelSectionHeader(title: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .basicsMicroLabel(11)
+                .foregroundStyle(self.theme.palette.tertiaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if self.viewModel.areSpeechModelActionsBlocked {
+                Text("Actions pause while a transcription is running")
+                    .basicsProse(13)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+            }
+
+            Menu {
+                Picker("Provider", selection: self.$viewModel.providerFilter) {
+                    ForEach(SpeechProviderFilter.allCases) { option in
+                        Text(option == .all ? "All providers" : option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+
+                Divider()
+
+                Toggle("English only", isOn: self.$viewModel.englishOnlyFilter)
+                Toggle("Downloaded only", isOn: self.$viewModel.installedOnlyFilter)
+            } label: {
+                VoiceEngineMenuTriggerLabel(title: self.providerFilterTitle)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+
+            Menu {
+                Picker("Sort by", selection: self.$viewModel.modelSortOption) {
+                    ForEach(ModelSortOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                VoiceEngineMenuTriggerLabel(
+                    title: "Sort by \(self.viewModel.modelSortOption.rawValue.lowercased())"
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+    }
+
+    private var providerFilterTitle: String {
+        var title = self.viewModel.providerFilter == .all
+            ? "All providers"
+            : self.viewModel.providerFilter.rawValue
+        var extras: [String] = []
+        if self.viewModel.englishOnlyFilter { extras.append("English") }
+        if self.viewModel.installedOnlyFilter { extras.append("downloaded") }
+        if extras.isEmpty == false {
+            title += " · \(extras.joined(separator: " + "))"
+        }
+        return title
+    }
+
+    // MARK: - Model list
+
+    private func modelListCard(models: [SettingsStore.SpeechModel]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+                if index > 0 {
+                    Rectangle()
+                        .fill(self.theme.palette.separator)
+                        .frame(height: 1)
+                }
+                self.speechModelCard(for: model)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .stroke(self.theme.palette.cardBorder, lineWidth: 1)
+        )
+    }
+
+    private var noActiveModelCard: some View {
+        HStack(spacing: 14) {
+            VoiceEngineRadio(isDashed: true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No active model yet")
+                    .basicsLabel(15)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                Text("Download one below and press Activate. Dictation stays off until then.")
+                    .basicsProse(14)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .strokeBorder(
+                    BasicsTokens.Surface.borderStrong,
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        )
+    }
+
+    func speechModelCard(for model: SettingsStore.SpeechModel) -> some View {
+        VoiceEngineModelRow(
+            viewModel: self.viewModel,
+            settings: self.settings,
+            actionLog: VoiceEngineActionLog.shared,
+            model: model
+        )
+    }
+
+    // MARK: - Stats panel
+
+    /// Describes whichever model the list is previewing, with the Speed/Accuracy
+    /// meters and the custom-vocabulary strip.
     var modelStatsPanel: some View {
         let model = self.viewModel.previewSpeechModel
-        let supportsCustomWords = model.supportsCustomVocabulary
 
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 20) {
+        return VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 32) {
                 VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(model.humanReadableName)
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(self.theme.palette.primaryText)
+                    HStack(spacing: 9) {
+                        Text(model.humanReadableName)
+                            .basicsLabel(16)
+                            .foregroundStyle(self.theme.palette.primaryText)
 
-                            if let badge = model.badgeText {
-                                Text(badge)
-                                    .font(.caption2)
-                                    .fontWeight(.semibold)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(badge == "FluidVoice Pick" ? .cyan.opacity(0.2) : .orange.opacity(0.2)))
-                                    .foregroundStyle(badge == "FluidVoice Pick" ? .cyan : .orange)
-                            }
-
-                            Spacer()
+                        if let badge = VoiceEngineModelCopy.badgeLabel(for: model) {
+                            VoiceEngineStatusChip(
+                                text: badge,
+                                style: VoiceEngineModelCopy.badgeIsBrand(badge) ? .brandSoft : .muted
+                            )
                         }
 
-                        Text(model.cardDescription)
-                            .font(self.theme.typography.bodySmall)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
-                            .lineLimit(2)
+                        Spacer(minLength: 0)
                     }
+
+                    Text(model.cardDescription)
+                        .basicsProse(14)
+                        .foregroundStyle(self.theme.palette.secondaryText)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 8) {
-                        Label(model.downloadSize, systemImage: "internaldrive")
-                            .font(self.theme.typography.bodySmall)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
+                        if let size = VoiceEngineModelCopy.sizeChipText(for: model) {
+                            VoiceEngineValueChip(text: size, style: .muted, mono: true, systemImage: "internaldrive")
+                        }
 
                         if model.requiresAppleSilicon {
-                            Text("Apple Silicon")
-                                .font(self.theme.typography.bodySmallStrong)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(self.theme.palette.accent.opacity(0.2)))
-                                .foregroundStyle(self.theme.palette.accent)
+                            VoiceEngineValueChip(text: "Apple Silicon", style: .brandSoft)
                         }
 
-                        Text(model.languageSupport)
-                            .font(self.theme.typography.bodySmallStrong)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(.quaternary))
-                            .foregroundStyle(self.voiceEngineSecondaryText)
+                        VoiceEngineValueChip(text: model.languageSupport, style: .muted)
 
-                        Spacer()
+                        Spacer(minLength: 0)
                     }
 
-                    if let supportedLanguageCodes = model.supportedLanguageCodes {
-                        Text(supportedLanguageCodes)
-                            .font(self.theme.typography.bodySmall)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
-                            .lineLimit(2)
+                    if let codes = model.supportedLanguageCodes {
+                        Text(codes)
+                            .basicsMono(11)
+                            .foregroundStyle(self.theme.palette.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    // Memory warning for large models
-                    if let memoryWarning = model.memoryWarning {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(.orange)
-                            Text(memoryWarning)
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(.orange)
+                    if let warning = VoiceEngineModelCopy.memoryWarning(for: model) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(BasicsTokens.display(13, .medium))
+                                .foregroundStyle(self.theme.palette.warning)
+                            Text(warning)
+                                .basicsProse(13)
+                                .foregroundStyle(self.theme.palette.warning)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
                         .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(.orange.opacity(0.1))
+                            RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                                .fill(self.theme.palette.warning.opacity(0.10))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(.orange.opacity(0.3), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                                        .stroke(self.theme.palette.warning.opacity(0.32), lineWidth: 1)
                                 )
                         )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 16) {
-                    LiquidBar(
-                        fillPercent: model.speedPercent,
-                        color: .yellow,
-                        secondaryColor: .orange,
-                        icon: "bolt.fill",
-                        label: "Speed"
-                    )
-
-                    LiquidBar(
-                        fillPercent: model.accuracyPercent,
-                        color: Color.fluidGreen,
-                        secondaryColor: .cyan,
-                        icon: "target",
-                        label: "Accuracy"
-                    )
+                VStack(alignment: .leading, spacing: 14) {
+                    VoiceEngineMeter(label: "Speed", value: model.speedPercent, animationKey: model.id)
+                    VoiceEngineMeter(label: "Accuracy", value: model.accuracyPercent, animationKey: model.id)
                 }
-                .frame(width: 140, alignment: .center)
-                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: model.id)
+                .frame(width: 236)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
 
-            if supportsCustomWords {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(self.theme.typography.bodySmall)
-                        .foregroundStyle(Color.fluidGreen)
+            if model.supportsCustomVocabulary {
+                Rectangle()
+                    .fill(self.theme.palette.separator)
+                    .frame(height: 1)
 
-                    Text("Custom Words supported on Parakeet. Teach names, product terms, and uncommon words for better accuracy.")
-                        .font(self.theme.typography.bodySmall)
-                        .foregroundStyle(self.voiceEngineSecondaryText)
-                        .lineLimit(3)
+                HStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle")
+                        .font(BasicsTokens.display(15, .medium))
+                        .foregroundStyle(self.theme.palette.accent)
+
+                    Text("Custom words work on this model. Teach it names, product terms and the words it keeps getting wrong.")
+                        .basicsProse(14)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 8)
 
-                    Button("Open Custom Dictionary") {
+                    VoiceEnginePillButton(title: "Open dictionary", role: .primary) {
                         NotificationCenter.default.post(name: .openCustomDictionaryFromVoiceEngine, object: nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.fluidGreen)
-                    .controlSize(.small)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.fluidGreen.opacity(0.10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.fluidGreen.opacity(0.30), lineWidth: 1)
-                        )
-                )
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(self.theme.palette.accent.opacity(0.10))
             }
         }
-        .padding(.vertical, 6)
-    }
-
-    func speechModelCard(for model: SettingsStore.SpeechModel) -> some View {
-        let isSelected = self.viewModel.previewSpeechModel == model
-        let isConfiguredActive = self.viewModel.isActiveSpeechModel(model)
-        let isActive = isConfiguredActive && model.isInstalled && self.viewModel.asr.isAsrReady
-
-        return HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(isSelected ? Color.fluidGreen : self.theme.palette.cardBorder.opacity(0.25))
-                .frame(width: 8, height: 8)
-                .overlay(
-                    Circle()
-                        .stroke(isSelected ? Color.fluidGreen : self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
-                )
-
-            self.speechModelLogoView(for: model)
-                .frame(width: 28, height: 28)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.humanReadableName)
-                    .font(self.theme.typography.bodyStrong)
-                    .foregroundStyle(self.voiceEngineTitleText)
-                Text(self.speechModelSubtitle(for: model))
-                    .font(self.theme.typography.body)
-                    .foregroundStyle(self.voiceEngineSecondaryText)
-
-                HStack(spacing: 12) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.yellow)
-                        Text("Speed \(Int(model.speedPercent * 100))%")
-                            .font(self.theme.typography.bodyStrong)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
-                    }
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "target")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.fluidGreen)
-                        Text("Acc \(Int(model.accuracyPercent * 100))%")
-                            .font(self.theme.typography.bodyStrong)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
-                    }
-
-                    if isSelected && !isActive {
-                        Text("Previewing")
-                            .font(self.theme.typography.bodyStrong)
-                            .foregroundStyle(self.voiceEngineSecondaryText)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Action area: Show progress if THIS model is being downloaded
-            if self.viewModel.downloadingModel == model {
-                // This specific model is currently being downloaded
-                HStack(spacing: 8) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        if self.viewModel.isCancellingModelDownload {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text("Cancelling…")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        } else if self.viewModel.asr.modelPreparationPhase == .downloading,
-                                  let progress = self.viewModel.asr.downloadProgress
-                        {
-                            ProgressView(value: progress)
-                                .progressViewStyle(.linear)
-                                .frame(width: 90)
-                            Text("\(Int(progress * 100))%")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        } else {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text(self.viewModel.asr.modelPreparationStatusText)
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        }
-                    }
-
-                    Button(self.viewModel.isCancellingModelDownload ? "Cancelling…" : "Cancel") {
-                        self.viewModel.cancelSpeechModelDownload()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(self.viewModel.isCancellingModelDownload)
-                }
-            } else if (self.viewModel.asr.isDownloadingModel
-                || self.viewModel.asr.isLoadingModel
-                || self.viewModel.asr.isCancellingModelPreparation)
-                && isConfiguredActive
-                && !self.viewModel.asr.isAsrReady
-            {
-                // Active model is loading/downloading (for Activate flow)
-                HStack(spacing: 8) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        if self.viewModel.asr.isCancellingModelPreparation {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text("Cancelling…")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        } else if self.viewModel.asr.isDownloadingModel,
-                                  self.viewModel.asr.modelPreparationPhase == .downloading,
-                                  let progress = self.viewModel.asr.downloadProgress
-                        {
-                            ProgressView(value: progress)
-                                .progressViewStyle(.linear)
-                                .frame(width: 90)
-                            Text("\(Int(progress * 100))%")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        } else {
-                            ProgressView()
-                                .controlSize(.mini)
-                            Text(self.viewModel.asr.modelPreparationStatusText)
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(self.voiceEngineSecondaryText)
-                        }
-                    }
-
-                    Button(self.viewModel.asr.isCancellingModelPreparation ? "Cancelling…" : "Cancel") {
-                        self.viewModel.cancelActiveModelPreparation()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(self.viewModel.asr.isCancellingModelPreparation)
-                }
-            } else if model.isInstalled {
-                HStack(spacing: 8) {
-                    if isActive {
-                        self.speechModelLanguagePicker(for: model)
-                            .disabled(self.viewModel.areSpeechModelActionsBlocked)
-
-                        Text("Active")
-                            .font(self.theme.typography.bodySmallStrong)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Capsule().fill(Color.fluidGreen.opacity(0.25)))
-                            .foregroundStyle(Color.fluidGreen)
-                    } else {
-                        Button("Activate") {
-                            self.viewModel.activateSpeechModel(model)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(Color.fluidGreen)
-                        .fontWeight(.semibold)
-                        .shadow(color: Color.fluidGreen.opacity(0.35), radius: 4, x: 0, y: 1)
-                        .disabled(self.viewModel.areSpeechModelActionsBlocked)
-                    }
-
-                    if !model.usesAppleLogo {
-                        if isSelected {
-                            Button {
-                                self.viewModel.deleteSpeechModel(model)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(.red.opacity(0.7))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(self.viewModel.areSpeechModelActionsBlocked)
-                            .offset(x: isSelected ? 0 : 12)
-                            .opacity(isSelected ? 1 : 0)
-                        }
-                    }
-                }
-            } else {
-                ZStack(alignment: .trailing) {
-                    if model.requiresExternalArtifacts {
-                        HStack(spacing: 8) {
-                            if model.externalCoreMLSpec?.sourceURL != nil {
-                                Button {
-                                    self.viewModel.openExternalModelSource(for: model)
-                                } label: {
-                                    Image(systemName: "arrow.up.right.square")
-                                        .font(.system(size: 14))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(self.voiceEngineTertiaryText)
-                                .disabled(self.viewModel.areSpeechModelActionsBlocked)
-                            }
-
-                            Button("Download") {
-                                self.viewModel.previewSpeechModel = model
-                                self.viewModel.downloadSpeechModel(model)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .tint(.blue)
-                            .disabled(self.viewModel.areSpeechModelActionsBlocked)
-                        }
-                        .offset(x: isSelected ? 0 : 16)
-                        .opacity(isSelected ? 1 : 0)
-                    } else {
-                        Text("Not downloaded")
-                            .font(self.theme.typography.bodySmall)
-                            .foregroundStyle(self.voiceEngineTertiaryText)
-                            .opacity(isSelected ? 0 : 1)
-
-                        Button("Download") {
-                            self.viewModel.previewSpeechModel = model
-                            self.viewModel.downloadSpeechModel(model)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(.blue)
-                        .disabled(self.viewModel.areSpeechModelActionsBlocked)
-                        .offset(x: isSelected ? 0 : 16)
-                        .opacity(isSelected ? 1 : 0)
-                    }
-                }
-                .frame(width: model.requiresExternalArtifacts ? 150 : 120, alignment: .trailing)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? self.theme.palette.cardBackground.opacity(0.8) : .clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? self.theme.palette.cardBorder.opacity(0.6) : self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isActive ? Color.fluidGreen.opacity(0.9) : .clear, lineWidth: 2)
-                )
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
         )
-        .onTapGesture {
-            self.viewModel.previewSpeechModel = model
-        }
-        .opacity(self.viewModel.asr.isRunning ? 0.6 : 1.0)
-        .allowsHitTesting(!self.viewModel.asr.isRunning)
-    }
-
-    @ViewBuilder
-    private func speechModelLanguagePicker(for model: SettingsStore.SpeechModel) -> some View {
-        if model == .cohereTranscribeSixBit {
-            Menu {
-                ForEach(SettingsStore.CohereLanguage.allCases) { language in
-                    Button {
-                        guard language != self.settings.selectedCohereLanguage else { return }
-                        self.settings.selectedCohereLanguage = language
-                    } label: {
-                        HStack {
-                            Text(language.displayName)
-                            if language == self.settings.selectedCohereLanguage {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                self.languageChipLabel(self.settings.selectedCohereLanguage.displayName)
-            }
-            .buttonStyle(.plain)
-        } else if model == .nemotronOffline || model == .nemotronStreaming || model == .nemotronStreaming320 {
-            self.nemotronLanguagePickerButton
-        }
-    }
-
-    private func languageChipLabel(_ title: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "globe")
-                .font(self.theme.typography.bodySmall)
-                .foregroundStyle(self.theme.palette.accent)
-            Text(title)
-                .lineLimit(1)
-                .fontWeight(.semibold)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(self.voiceEngineTertiaryText)
-        }
-        .font(self.theme.typography.bodySmallStrong)
-        .frame(minHeight: 24)
-        .padding(.horizontal, 9)
-        .background(
-            Capsule()
-                .fill(self.theme.palette.accent.opacity(0.10))
-                .overlay(
-                    Capsule()
-                        .stroke(self.theme.palette.accent.opacity(0.28), lineWidth: 1)
-                )
+        .clipShape(RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .stroke(self.theme.palette.cardBorder, lineWidth: 1)
         )
     }
 
-    private func speechModelSubtitle(for model: SettingsStore.SpeechModel) -> String {
-        switch model {
-        case .nemotronStreaming, .nemotronStreaming320:
-            return "Nemotron Speech 3.5 - Streaming Capable"
-        default:
-            return model.displayName
-        }
-    }
-
-    private var nemotronLanguagePickerButton: some View {
-        Button {
-            self.isShowingNemotronLanguagePicker.toggle()
-        } label: {
-            self.languageChipLabel(self.settings.selectedNemotronLanguage.compactDisplayName)
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: self.$isShowingNemotronLanguagePicker, arrowEdge: .bottom) {
-            self.nemotronLanguagePickerPopover
-        }
-    }
-
-    private var nemotronLanguagePickerPopover: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(SettingsStore.NemotronLanguage.allCases) { language in
-                    Button {
-                        self.settings.selectedNemotronLanguage = language
-                        self.isShowingNemotronLanguagePicker = false
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(language.displayName)
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(.primary)
-                            Spacer(minLength: 12)
-                            if language == self.settings.selectedNemotronLanguage {
-                                Image(systemName: "checkmark")
-                                    .font(self.theme.typography.bodySmall)
-                                    .foregroundStyle(self.theme.palette.accent)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .padding(.horizontal, 12)
-                        .frame(height: 26)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 6)
-        }
-        .frame(width: 260, height: 532)
-    }
-
-    var modelStatusView: some View {
-        HStack(spacing: 12) {
-            if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel) && !self.viewModel.asr.isAsrReady {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).fixedSize()
-                    Text(self.viewModel.asr.isLoadingModel ? "Loading model…" : "Downloading model…")
-                        .font(self.theme.typography.bodySmall)
-                        .foregroundStyle(self.voiceEngineSecondaryText)
-                }
-            } else if self.viewModel.asr.isAsrReady {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.fluidGreen).font(self.theme.typography.bodySmall)
-                Text("Ready").font(self.theme.typography.bodySmall).foregroundStyle(self.voiceEngineSecondaryText)
-
-                Button(action: { Task { await self.viewModel.deleteModels() } }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "trash")
-                        Text("Delete")
-                    }
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-            } else if self.viewModel.asr.modelsExistOnDisk {
-                Image(systemName: "doc.fill").foregroundStyle(self.theme.palette.accent).font(self.theme.typography.bodySmall)
-                Text("Cached")
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(self.voiceEngineSecondaryText)
-
-                Button(action: { Task { await self.viewModel.deleteModels() } }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "trash")
-                        Text("Delete")
-                    }
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-            } else {
-                HStack(spacing: 8) {
-                    if self.settings.selectedSpeechModel.requiresExternalArtifacts,
-                       self.settings.selectedSpeechModel.externalCoreMLSpec?.sourceURL != nil
-                    {
-                        Button(action: { self.viewModel.openExternalModelSource(for: self.settings.selectedSpeechModel) }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.up.right.square")
-                                Text("Hugging Face")
-                            }
-                            .font(self.theme.typography.bodySmall)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(self.theme.palette.accent)
-                    }
-
-                    Button(action: { Task { await self.viewModel.downloadModels() } }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.down.circle.fill")
-                            Text("Download")
-                        }
-                        .font(self.theme.typography.bodySmall)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(.blue)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(self.theme.palette.cardBackground.opacity(0.8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)))
-    }
+    // MARK: - Filler words
 
     var fillerWordsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Remove Filler Words")
-                        .font(self.theme.typography.bodyStrong)
-                        .foregroundStyle(self.voiceEngineTitleText)
-                    Text("Automatically remove filler sounds like 'um', 'uh', 'er' from transcriptions")
-                        .font(self.theme.typography.bodySmall)
-                        .foregroundStyle(self.voiceEngineSecondaryText)
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(self.theme.palette.separator)
+                .frame(height: 1)
+
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Remove filler words")
+                        .basicsLabel(15)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                    Text("Strips the ums, uhs and ers out of a transcript before it lands.")
+                        .basicsProse(14)
+                        .foregroundStyle(self.theme.palette.secondaryText)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 Toggle("", isOn: self.$viewModel.removeFillerWordsEnabled)
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    .tint(self.theme.palette.accent)
                     .onChange(of: self.viewModel.removeFillerWordsEnabled) { _, newValue in
                         self.settings.removeFillerWordsEnabled = newValue
                     }
             }
+            .padding(.vertical, 18)
 
             if self.viewModel.removeFillerWordsEnabled {
                 FillerWordsEditor()
+                    .padding(.bottom, 18)
+            }
+        }
+    }
+}
+
+// MARK: - One model row
+
+/// A single speech model in the list. Lanes are fixed so the column of sizes,
+/// actions and delete buttons lines up across every row regardless of state.
+struct VoiceEngineModelRow: View {
+    @Environment(\.theme) private var theme
+
+    @ObservedObject var viewModel: VoiceEngineSettingsViewModel
+    @ObservedObject var settings: SettingsStore
+    @ObservedObject var actionLog: VoiceEngineActionLog
+
+    let model: SettingsStore.SpeechModel
+
+    private var isConfiguredActive: Bool { self.viewModel.isActiveSpeechModel(self.model) }
+
+    private var isActive: Bool {
+        self.isConfiguredActive && self.model.isInstalled && self.viewModel.asr.isAsrReady
+    }
+
+    private var isPreviewing: Bool {
+        self.viewModel.previewSpeechModel == self.model && !self.isActive
+    }
+
+    private var isDownloadingThis: Bool { self.viewModel.downloadingModel == self.model }
+
+    private var isPreparingActive: Bool {
+        (self.viewModel.asr.isDownloadingModel
+            || self.viewModel.asr.isLoadingModel
+            || self.viewModel.asr.isCancellingModelPreparation)
+            && self.isConfiguredActive
+            && !self.viewModel.asr.isAsrReady
+    }
+
+    private var failure: VoiceEngineActionLog.Failure? { self.actionLog.failure(for: self.model.id) }
+
+    private var rowBackground: Color {
+        if self.isActive { return self.theme.palette.accent.opacity(0.10) }
+        if self.isPreviewing { return self.theme.palette.sidebarBackground }
+        return .clear
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VoiceEngineRadio(isFilled: self.isActive)
+
+            VStack(alignment: .leading, spacing: 5) {
+                self.titleLine
+                self.detailLine
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(VoiceEngineModelCopy.rowSizeText(for: self.model))
+                .basicsMono(12)
+                .monospacedDigit()
+                .foregroundStyle(
+                    self.model.isInstalled ? self.theme.palette.secondaryText : self.theme.palette.tertiaryText
+                )
+                .frame(width: 84, alignment: .trailing)
+
+            self.actionSlot
+                .frame(width: 104, alignment: .trailing)
+
+            self.deleteSlot
+                .frame(width: 28, height: 28)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.rowBackground)
+        .contentShape(Rectangle())
+        .onTapGesture { self.viewModel.previewSpeechModel = self.model }
+        .animation(.easeInOut(duration: 0.18), value: self.isPreviewing)
+        .opacity(self.viewModel.asr.isRunning ? 0.45 : 1)
+        .allowsHitTesting(!self.viewModel.asr.isRunning)
+    }
+
+    // MARK: Title line
+
+    private var titleLine: some View {
+        HStack(spacing: 9) {
+            Text(self.model.humanReadableName)
+                .basicsLabel(15)
+                .foregroundStyle(self.theme.palette.primaryText)
+                .lineLimit(1)
+
+            if self.isActive {
+                VoiceEngineStatusChip(text: "Active", style: .brandFilled)
+            }
+
+            VoiceEngineStatusChip(
+                text: VoiceEngineModelCopy.runsWhereLabel(for: self.model),
+                style: self.isActive ? .card : .muted
+            )
+
+            if !self.isActive, let badge = VoiceEngineModelCopy.badgeLabel(for: self.model) {
+                VoiceEngineStatusChip(
+                    text: badge,
+                    style: VoiceEngineModelCopy.badgeIsBrand(badge) ? .brandSoft : .muted
+                )
+            }
+
+            if VoiceEngineModelCopy.isStreamingModel(self.model) {
+                VoiceEngineStatusChip(text: "Streaming", style: .muted)
+            }
+
+            if self.isPreviewing {
+                VoiceEngineStatusChip(text: "Previewing", style: .outlined)
+            }
+
+            if self.model == .cohereTranscribeSixBit {
+                VoiceEngineCohereLanguageChip(
+                    settings: self.settings,
+                    isEnabled: !self.viewModel.areSpeechModelActionsBlocked
+                )
+            } else if VoiceEngineModelCopy.usesNemotronLanguage(self.model) {
+                VoiceEngineNemotronLanguageChip(
+                    settings: self.settings,
+                    isEnabled: !self.viewModel.areSpeechModelActionsBlocked
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: Detail line
+
+    @ViewBuilder
+    private var detailLine: some View {
+        if let failure = self.failure {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(BasicsTokens.display(13, .medium))
+                    .foregroundStyle(BasicsTokens.Semantic.danger)
+                Text(failure.message)
+                    .basicsProse(13)
+                    .foregroundStyle(BasicsTokens.Semantic.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                    .fill(BasicsTokens.Semantic.danger.opacity(0.07))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                            .stroke(BasicsTokens.Semantic.danger.opacity(0.28), lineWidth: 1)
+                    )
+            )
+        } else if self.isDownloadingThis || self.isPreparingActive {
+            VStack(alignment: .leading, spacing: 7) {
+                VoiceEngineProgressTrack(
+                    progress: self.viewModel.asr.downloadProgress,
+                    isDimmed: self.isCancelling
+                )
+                Text(self.progressStatusText)
+                    .basicsMono(12)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(self.model.cardDescription)
+                    .basicsProse(14)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .lineLimit(2)
+
+                if self.model.externalCoreMLSpec?.sourceURL != nil {
+                    Button {
+                        self.viewModel.openExternalModelSource(for: self.model)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Open model source").basicsLabel(13)
+                            Image(systemName: "arrow.up.right.square")
+                                .font(BasicsTokens.display(11, .medium))
+                        }
+                        .foregroundStyle(self.theme.palette.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(self.viewModel.areSpeechModelActionsBlocked)
+                }
+
+                Spacer(minLength: 0)
             }
         }
     }
 
-    // MARK: - Speech Model Logo View
+    private var isCancelling: Bool {
+        (self.isDownloadingThis && self.viewModel.isCancellingModelDownload)
+            || (self.isPreparingActive && self.viewModel.asr.isCancellingModelPreparation)
+    }
 
-    private func speechModelLogoView(for model: SettingsStore.SpeechModel) -> some View {
-        let bgColor = self.speechModelBackgroundColor(for: model)
-        let imageName = self.speechModelImageName(for: model)
-        let isNvidia = model.brandName.lowercased().contains("nvidia")
+    private var progressStatusText: String {
+        if self.isCancelling {
+            if let progress = self.viewModel.asr.downloadProgress {
+                return "Cancelling… · stopping at \(Int((progress * 100).rounded()))%"
+            }
+            return "Cancelling…"
+        }
 
-        return ZStack {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(bgColor)
+        let status = self.viewModel.asr.modelPreparationStatusText
+        let size = VoiceEngineModelCopy.rowSizeText(for: self.model)
+        guard self.viewModel.asr.modelPreparationPhase == .downloading, size != "—" else { return status }
+        return "\(status) · \(size)"
+    }
 
-            if model.usesAppleLogo {
-                Image(systemName: "apple.logo")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.primary)
-            } else if let imageName {
-                Image(imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    // NVIDIA logo larger to fill more of the container
-                    .frame(width: isNvidia ? 24 : 18, height: isNvidia ? 24 : 18)
-            } else {
-                Text(String(model.brandName.prefix(2)).uppercased())
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(self.theme.palette.primaryText)
+    // MARK: Action + delete lanes
+
+    @ViewBuilder
+    private var actionSlot: some View {
+        if let failure = self.failure {
+            VoiceEnginePillButton(title: "Retry", isEnabled: !self.viewModel.areSpeechModelActionsBlocked) {
+                self.actionLog.clearFailure(for: self.model.id)
+                switch failure.action {
+                case .download:
+                    self.startDownload()
+                case .activate:
+                    self.startActivate()
+                }
+            }
+        } else if self.isDownloadingThis {
+            VoiceEnginePillButton(
+                title: self.viewModel.isCancellingModelDownload ? "Cancelling…" : "Cancel",
+                isEnabled: !self.viewModel.isCancellingModelDownload
+            ) {
+                self.viewModel.cancelSpeechModelDownload()
+            }
+        } else if self.isPreparingActive {
+            VoiceEnginePillButton(
+                title: self.viewModel.asr.isCancellingModelPreparation ? "Cancelling…" : "Cancel",
+                isEnabled: !self.viewModel.asr.isCancellingModelPreparation
+            ) {
+                self.viewModel.cancelActiveModelPreparation()
+            }
+        } else if self.model.isInstalled {
+            if !self.isActive {
+                VoiceEnginePillButton(
+                    title: "Activate",
+                    isEnabled: !self.viewModel.areSpeechModelActionsBlocked
+                ) {
+                    self.startActivate()
+                }
+            }
+        } else {
+            VoiceEnginePillButton(
+                title: "Download",
+                isEnabled: !self.viewModel.areSpeechModelActionsBlocked
+            ) {
+                self.startDownload()
             }
         }
-        .frame(width: 28, height: 28)
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
-    private func speechModelBackgroundColor(for model: SettingsStore.SpeechModel) -> Color {
-        let brand = model.brandName.lowercased()
-
-        // Both NVIDIA and OpenAI use white/light gray bg (transparent logos)
-        if brand.contains("nvidia") || brand.contains("openai") || brand.contains("whisper") {
-            return Color(red: 0.97, green: 0.97, blue: 0.97)
+    @ViewBuilder
+    private var deleteSlot: some View {
+        if self.model.isInstalled, !self.model.usesAppleLogo {
+            VoiceEngineIconButton(
+                systemImage: "trash",
+                isEnabled: !self.viewModel.areSpeechModelActionsBlocked,
+                help: "Delete \(self.model.humanReadableName) from this Mac"
+            ) {
+                self.actionLog.clearFailure(for: self.model.id)
+                self.viewModel.deleteSpeechModel(self.model)
+            }
+        } else {
+            Color.clear
         }
-        if brand.contains("apple") || model.usesAppleLogo {
-            return self.theme.palette.cardBackground.opacity(0.9)
-        }
-        return Color(hex: model.brandColorHex)?.opacity(0.2) ?? self.theme.palette.cardBackground
     }
 
-    private func speechModelImageName(for model: SettingsStore.SpeechModel) -> String? {
-        let brand = model.brandName.lowercased()
+    private func startDownload() {
+        self.viewModel.previewSpeechModel = self.model
+        self.actionLog.begin(.download, for: self.model.id)
+        self.viewModel.downloadSpeechModel(self.model)
+    }
 
-        if brand.contains("nvidia") {
-            return "Provider_NVIDIA"
+    private func startActivate() {
+        self.actionLog.begin(.activate, for: self.model.id)
+        self.viewModel.activateSpeechModel(self.model)
+    }
+}
+
+// MARK: - Language chips
+
+/// Globe chip on the Cohere row. Cohere has no auto-detect, so it always reads
+/// as the neutral variant.
+struct VoiceEngineCohereLanguageChip: View {
+    @ObservedObject var settings: SettingsStore
+    let isEnabled: Bool
+
+    var body: some View {
+        Menu {
+            Picker("Transcription language", selection: self.$settings.selectedCohereLanguage) {
+                ForEach(SettingsStore.CohereLanguage.allCases) { language in
+                    Text(language.displayName).tag(language)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            VoiceEngineLanguageChipLabel(
+                title: self.settings.selectedCohereLanguage.displayName,
+                isBrand: false
+            )
         }
-        if brand.contains("cohere") {
-            return "Provider_Cohere"
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(!self.isEnabled)
+        .opacity(self.isEnabled ? 1 : 0.45)
+    }
+}
+
+/// Globe chip on the Nemotron rows, opening the 260pt language popover. Reads as
+/// the brand variant while the language is being auto-detected.
+struct VoiceEngineNemotronLanguageChip: View {
+    @Environment(\.theme) private var theme
+    @ObservedObject var settings: SettingsStore
+    let isEnabled: Bool
+
+    @State private var isOpen = false
+
+    private var isAuto: Bool { self.settings.selectedNemotronLanguage == .auto }
+
+    var body: some View {
+        Button {
+            self.isOpen.toggle()
+        } label: {
+            VoiceEngineLanguageChipLabel(
+                title: self.settings.selectedNemotronLanguage.compactDisplayName,
+                isBrand: self.isAuto
+            )
         }
-        if brand.contains("openai") || brand.contains("whisper") {
-            return "Provider_OpenAI"
+        .buttonStyle(.plain)
+        .disabled(!self.isEnabled)
+        .opacity(self.isEnabled ? 1 : 0.45)
+        .popover(isPresented: self.$isOpen, arrowEdge: .bottom) {
+            self.popoverBody
         }
-        return nil
+    }
+
+    private var popoverBody: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Transcription language")
+                    .basicsMicroLabel(11)
+                    .foregroundStyle(self.theme.palette.tertiaryText)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Rectangle()
+                .fill(self.theme.palette.separator)
+                .frame(height: 1)
+
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(SettingsStore.NemotronLanguage.allCases) { language in
+                        self.languageRow(language)
+                    }
+                }
+                .padding(6)
+            }
+        }
+        .frame(width: 260, height: 420)
+        .background(self.theme.palette.cardBackground)
+    }
+
+    private func languageRow(_ language: SettingsStore.NemotronLanguage) -> some View {
+        let isSelected = language == self.settings.selectedNemotronLanguage
+        let parts = VoiceEngineModelCopy.languageNameAndTier(language.displayName)
+
+        return Button {
+            self.settings.selectedNemotronLanguage = language
+            self.isOpen = false
+        } label: {
+            HStack(spacing: 8) {
+                Text(parts.name)
+                    .basicsLabel(13)
+                    .foregroundStyle(isSelected ? self.theme.palette.accent : self.theme.palette.primaryText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                if let tier = parts.tier {
+                    VoiceEngineStatusChip(text: tier, style: .muted)
+                }
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(BasicsTokens.display(12, .medium))
+                        .foregroundStyle(self.theme.palette.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                    .fill(isSelected ? self.theme.palette.accent.opacity(0.10) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct VoiceEngineLanguageChipLabel: View {
+    @Environment(\.theme) private var theme
+
+    let title: String
+    let isBrand: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "globe")
+                .font(BasicsTokens.display(11, .medium))
+                .foregroundStyle(self.isBrand ? self.theme.palette.accent : self.theme.palette.tertiaryText)
+            Text(self.title)
+                .basicsLabel(11)
+                .lineLimit(1)
+                .foregroundStyle(self.isBrand ? self.theme.palette.accent : self.theme.palette.primaryText)
+            Image(systemName: "chevron.down")
+                .font(BasicsTokens.display(9, .medium))
+                .foregroundStyle(self.isBrand ? self.theme.palette.accent : self.theme.palette.tertiaryText)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule()
+                .fill(self.isBrand ? self.theme.palette.accent.opacity(0.10) : self.theme.palette.cardBackground)
+                .overlay(
+                    Capsule().stroke(
+                        self.isBrand ? self.theme.palette.accent : self.theme.palette.cardBorder,
+                        lineWidth: 1
+                    )
+                )
+        )
+    }
+}
+
+// MARK: - Copy derived from the real model catalogue
+
+/// Pure presentation helpers over `SettingsStore.SpeechModel`. Nothing here
+/// invents a value — each function reformats a stored one for the board.
+enum VoiceEngineModelCopy {
+    /// `downloadSize` ships as "~460.9 MiB" / "Built-in"; rows want a bare figure
+    /// and an em dash for the models that ship with macOS.
+    static func rowSizeText(for model: SettingsStore.SpeechModel) -> String {
+        let raw = model.downloadSize
+        if raw.caseInsensitiveCompare("Built-in") == .orderedSame { return "—" }
+        return raw.hasPrefix("~") ? String(raw.dropFirst()) : raw
+    }
+
+    /// Stats-panel size chip: nil for built-in models, which occupy no disk of
+    /// their own.
+    static func sizeChipText(for model: SettingsStore.SpeechModel) -> String? {
+        let size = self.rowSizeText(for: model)
+        guard size != "—" else { return nil }
+        return model.isInstalled ? "\(size) on disk" : "\(size) download"
+    }
+
+    /// Where the model runs. Every model in the catalogue transcribes locally;
+    /// the Apple engines are part of macOS rather than a download.
+    static func runsWhereLabel(for model: SettingsStore.SpeechModel) -> String {
+        model.usesAppleLogo ? "Built in" : "On device"
+    }
+
+    /// `badgeText` is a frozen store string; "FluidVoice Pick" is shown under the
+    /// app's redesigned name.
+    static func badgeLabel(for model: SettingsStore.SpeechModel) -> String? {
+        guard let badge = model.badgeText else { return nil }
+        return badge == "FluidVoice Pick" ? "Basics pick" : badge
+    }
+
+    static func badgeIsBrand(_ badge: String) -> Bool {
+        badge == "Basics pick" || badge == "New"
+    }
+
+    /// `memoryWarning` carries its own ⚠️ in some cases; the row draws the icon.
+    static func memoryWarning(for model: SettingsStore.SpeechModel) -> String? {
+        guard let warning = model.memoryWarning else { return nil }
+        return warning
+            .replacingOccurrences(of: "⚠️", with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    static func isStreamingModel(_ model: SettingsStore.SpeechModel) -> Bool {
+        model == .nemotronStreaming || model == .nemotronStreaming320
+    }
+
+    static func usesNemotronLanguage(_ model: SettingsStore.SpeechModel) -> Bool {
+        model == .nemotronOffline || model == .nemotronStreaming || model == .nemotronStreaming320
+    }
+
+    /// Nemotron display names encode a maturity tier as a " - Alpha" /
+    /// " - Experimental" suffix; the popover shows it as a trailing chip.
+    static func languageNameAndTier(_ displayName: String) -> (name: String, tier: String?) {
+        let parts = displayName.components(separatedBy: " - ")
+        guard parts.count > 1, let tier = parts.last else { return (displayName, nil) }
+        return (parts.dropLast().joined(separator: " - "), tier)
     }
 }
 

@@ -1,9 +1,16 @@
 import SwiftUI
 
-// MARK: - Hoverable Glossy Card Component
+// MARK: - Hoverable Card
 
+/// Board "15 — Components" § Card · interactive.
+///
+/// Formerly a glossy card: a translucent material with a white shine gradient on
+/// top. The Basics surfaces are flat — white on snow, one hairline, two soft
+/// shadows — so the gloss is gone and only the hover behaviour is kept: border
+/// steps to borderStrong, the shadow deepens, the card scales 1.01 over 180ms.
 struct HoverableGlossyCard<Content: View>: View {
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     private let content: Content
@@ -15,29 +22,29 @@ struct HoverableGlossyCard<Content: View>: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: theme.metrics.corners.lg, style: .continuous)
-        let cardShadow = self.theme.metrics.cardShadow
+        let shape = RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+        let ink = BasicsTokens.Ink.foreground
+        let border = self.isHovered
+            ? BasicsBorder.strong(self.theme, self.colorScheme)
+            : self.theme.palette.cardBorder
+        let shadows = self.isHovered
+            ? [
+                BasicsShadow(color: ink.opacity(0.05), radius: 1.5, y: 2),
+                BasicsShadow(color: ink.opacity(0.08), radius: 17, y: 14),
+            ]
+            : [
+                BasicsShadow(color: ink.opacity(0.04), radius: 1, y: 1),
+                BasicsShadow(color: ink.opacity(0.04), radius: 12, y: 8),
+            ]
 
         return self.content
-            .background(self.theme.materials.card, in: shape)
             .background {
                 shape
                     .fill(self.theme.palette.cardBackground)
-                    .overlay(
-                        shape
-                            .stroke(
-                                self.theme.palette.cardBorder.opacity(self.isHovered ? 0.5 : 0.25),
-                                lineWidth: self.isHovered ? 1.2 : 1
-                            )
-                    )
-                    .shadow(
-                        color: cardShadow.color.opacity(self.isHovered ? min(cardShadow.opacity + 0.1, 1.0) : cardShadow.opacity),
-                        radius: self.isHovered ? cardShadow.radius + 2 : cardShadow.radius,
-                        x: cardShadow.x,
-                        y: self.isHovered ? cardShadow.y + 1 : cardShadow.y
-                    )
+                    .overlay(shape.stroke(border, lineWidth: 1))
+                    .basicsShadows(shadows)
             }
-            .scaleEffect(self.isHovered && !self.excludeInteractiveElements ? 1.02 : 1.0)
+            .scaleEffect(self.isHovered && !self.excludeInteractiveElements ? 1.01 : 1.0)
             .onHover { hovering in
                 self.isHovered = hovering
             }
@@ -53,56 +60,18 @@ extension View {
     }
 }
 
+/// The lift a bare (unstyled) control gets on hover. The accent glow it used to
+/// throw is not on any board — one green moment per region, and it belongs to the
+/// control's own fill, not to a halo around it.
 struct ButtonHoverModifier: ViewModifier {
-    @Environment(\.theme) private var theme
     @State private var isHovered = false
 
     func body(content: Content) -> some View {
         content
             .scaleEffect(self.isHovered ? FluidInteractionVisuals.hoverScale : 1.0)
-            .shadow(
-                color: self.theme.palette.accent.opacity(self.isHovered ? 0.35 : 0.0),
-                radius: self.isHovered ? 8 : 0,
-                x: 0,
-                y: self.isHovered ? 3 : 0
-            )
             .onHover { hovering in
                 self.isHovered = hovering
             }
             .animation(FluidInteractionVisuals.hoverAnimation, value: self.isHovered)
     }
 }
-
-// Removed CursorFollowingGlow - was causing performance issues
-// struct CursorFollowingGlow: View {
-//     @EnvironmentObject var mouseTracker: MousePositionTracker
-//     let size: CGFloat
-//     let intensity: Double
-//
-//     init(size: CGFloat = 300, intensity: Double = 0.2) {
-//         self.size = size
-//         self.intensity = intensity
-//     }
-//
-//     var body: some View {
-//         GeometryReader { geometry in
-//             let relativeX = mouseTracker.relativePosition.x
-//             let relativeY = mouseTracker.relativePosition.y
-//
-//             RadialGradient(
-//                 colors: [
-//                     Color.white.opacity(intensity * 0.6),
-//                     Color.white.opacity(intensity * 0.3),
-//                     Color.white.opacity(intensity * 0.1),
-//                     Color.clear
-//                 ],
-//                 center: UnitPoint(x: relativeX, y: relativeY),
-//                 startRadius: size * 0.1,
-//                 endRadius: size * 0.5
-//             )
-//             .blendMode(.overlay)
-//             .allowsHitTesting(false)
-//             .animation(.easeInOut(duration: 0.25), value: mouseTracker.mousePosition)
-//         }
-//     }
-// }
