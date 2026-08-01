@@ -1028,7 +1028,12 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     /// system's own lighter material with a seam under it.
     static func applyBasicsChrome(to window: NSWindow) {
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = NSColor(BasicsTokens.Surface.bg)
+        // The window ground is only ever visible in ONE place: the strip above
+        // the sidebar, because the detail pane paints its own white up under
+        // the titlebar already. So the ground is the SIDEBAR tone — that makes
+        // the left of the strip continuous with the sidebar and the right
+        // continuous with the page, and the band stops reading as a band.
+        window.backgroundColor = NSColor(BasicsTokens.Surface.sidebar)
         window.isOpaque = true
         // No titlebar band at all: the content view fills the window and the
         // traffic lights float over it. Note this is NOT paired with
@@ -1038,6 +1043,32 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         // Pairing the two is what clipped the first row in an earlier attempt.
         window.styleMask.insert(.fullSizeContentView)
         window.titleVisibility = .hidden
+        Self.allowFullHeightSidebar(in: window)
+    }
+
+    /// `NavigationSplitView` is an `NSSplitViewController` underneath, and the
+    /// AppKit knob that lets a sidebar occupy the titlebar's height is
+    /// `NSSplitViewItem.allowsFullHeightLayout`. SwiftUI does not surface it, so
+    /// reach the controller and set it — without this the split view lays itself
+    /// out BELOW the titlebar no matter what the window's style mask says, and
+    /// the window ground shows through as a band across the top.
+    private static func allowFullHeightSidebar(in window: NSWindow) {
+        guard let root = window.contentViewController else { return }
+        var queue: [NSViewController] = [root]
+        while let controller = queue.first {
+            queue.removeFirst()
+            if let split = controller as? NSSplitViewController,
+               let sidebar = split.splitViewItems.first
+            {
+                sidebar.allowsFullHeightLayout = true
+                // Leave the divider invisible — a line here would reinstate the
+                // seam the design is trying to remove.
+                sidebar.titlebarSeparatorStyle = .none
+                split.splitViewItems.dropFirst().forEach { $0.titlebarSeparatorStyle = .none }
+                return
+            }
+            queue.append(contentsOf: controller.children)
+        }
     }
 
     private func ensureUsableMainWindow(_ window: NSWindow) {

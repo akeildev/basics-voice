@@ -1312,10 +1312,21 @@ struct ContentView: View {
         }
         .listStyle(.sidebar)
         .animation(nil, value: self.selectedSidebarItem)
+        // macOS 26 renders a split-view sidebar as an INSET rounded panel, so
+        // the window ground shows above and around it — that was the white
+        // strip across the top. Drop the List's own backing and paint the
+        // column's ground ourselves, edge to edge and up under the titlebar.
+        // The `.ignoresSafeArea` is on the BACKGROUND only; the rows still
+        // respect the safe area, so nothing is clipped behind the traffic
+        // lights.
+        .scrollContentBackground(.hidden)
+        .background(
+            BasicsTokens.Surface.sidebar
+                .ignoresSafeArea()
+        )
         // No navigationTitle: it printed the app name across the top of the
-        // window, reading as a bar cutting over the sidebar. The window title
-        // is set on the NSWindow itself (for the Dock and Window menu) and the
-        // titlebar renders it hidden.
+        // window. The window title is set on the NSWindow itself (for the Dock
+        // and Window menu) and the titlebar renders it hidden.
         .tint(self.theme.palette.accent)
     }
 
