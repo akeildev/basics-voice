@@ -1030,8 +1030,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(BasicsTokens.Surface.bg)
         window.isOpaque = true
-        window.styleMask.remove(.fullSizeContentView)
-        window.titleVisibility = .visible
+        // No titlebar band at all: the content view fills the window and the
+        // traffic lights float over it. Note this is NOT paired with
+        // `ignoresSafeArea` on the split view — SwiftUI still reports the
+        // titlebar's height as safe area, so the nav rows stay clear of the
+        // lights while the sidebar's own background runs to the top edge.
+        // Pairing the two is what clipped the first row in an earlier attempt.
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
     }
 
     private func ensureUsableMainWindow(_ window: NSWindow) {
