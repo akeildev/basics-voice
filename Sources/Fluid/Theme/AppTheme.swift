@@ -42,27 +42,48 @@ struct AppTheme {
         let sidebarSection: Font
         let chromeCaption: Font
 
+        // Basics roles. The pre-existing roles above do not distinguish a LABEL
+        // from a SENTENCE, but the Basics system divides the two families by
+        // exactly that: Chillax scans, Karma reads. Rather than guess globally,
+        // ambiguous legacy roles stay on Chillax and these explicit roles carry
+        // the prose, so each call site can be assigned by reading its context.
+        let proseBody: Font
+        let proseSmall: Font
+        let microLabel: Font
+        let buttonLabel: Font
+        let statNumeral: Font
+        let monoBody: Font
+        let monoSmall: Font
+
         static let standard = Typography(
-            displayTitle: .system(size: 42, weight: .semibold),
-            statement: .system(size: 17, weight: .regular),
-            title: .system(size: 22, weight: .bold),
+            displayTitle: BasicsTokens.display(40, .medium),
+            statement: BasicsTokens.prose(17, .regular),
+            title: BasicsTokens.display(22, .medium),
             titleIcon: .system(size: 22, weight: .regular),
-            sectionTitle: .system(size: 15, weight: .semibold),
-            body: .system(size: 14, weight: .regular),
-            bodyStrong: .system(size: 14, weight: .medium),
-            bodySmall: .system(size: 13, weight: .regular),
-            bodySmallStrong: .system(size: 13, weight: .medium),
-            caption: .system(size: 12, weight: .regular),
-            captionStrong: .system(size: 12, weight: .medium),
-            captionSmall: .system(size: 11, weight: .regular),
-            tiny: .system(size: 11, weight: .regular),
-            tinyStrong: .system(size: 11, weight: .bold),
-            badge: .system(size: 11, weight: .semibold),
-            metricTiny: .system(size: 11, weight: .bold, design: .rounded),
-            codeCaption: .system(size: 12, weight: .medium, design: .monospaced),
-            sidebarItem: .system(size: 14, weight: .regular),
-            sidebarSection: .system(size: 12, weight: .medium),
-            chromeCaption: .system(size: 12, weight: .regular)
+            sectionTitle: BasicsTokens.display(15, .medium),
+            body: BasicsTokens.display(14, .medium),
+            bodyStrong: BasicsTokens.display(14, .medium),
+            bodySmall: BasicsTokens.display(13, .medium),
+            bodySmallStrong: BasicsTokens.display(13, .medium),
+            caption: BasicsTokens.display(12, .medium),
+            captionStrong: BasicsTokens.display(12, .medium),
+            captionSmall: BasicsTokens.display(11, .medium),
+            tiny: BasicsTokens.display(11, .medium),
+            tinyStrong: BasicsTokens.display(11, .semibold),
+            badge: BasicsTokens.display(11, .medium),
+            metricTiny: BasicsTokens.mono(11, .medium),
+            codeCaption: BasicsTokens.mono(12, .regular),
+            sidebarItem: BasicsTokens.display(14, .medium),
+            sidebarSection: BasicsTokens.display(11, .medium),
+            chromeCaption: BasicsTokens.display(12, .medium),
+
+            proseBody: BasicsTokens.prose(15, .regular),
+            proseSmall: BasicsTokens.prose(14, .regular),
+            microLabel: BasicsTokens.display(11, .medium),
+            buttonLabel: BasicsTokens.button(13),
+            statNumeral: BasicsTokens.display(34, .medium),
+            monoBody: BasicsTokens.mono(13, .regular),
+            monoSmall: BasicsTokens.mono(12, .regular)
         )
     }
 
@@ -285,24 +306,32 @@ struct AppTheme {
         }
     }
 
-    /// Light theme using system colors so macOS accessibility contrast settings stay in control.
+    /// Light theme on the Basics surfaces — snow ground, spruce-tinted neutrals.
+    ///
+    /// This deliberately replaces the previous all-system-colour palette. Those
+    /// let macOS accessibility contrast settings drive the greys, which is the
+    /// safer default but cannot express the Basics system: its neutrals carry hue
+    /// 157.6 at chroma 0.002-0.010, and that faint spruce cast is the thing that
+    /// makes the greys sit with the green instead of beside it. Contrast was
+    /// checked rather than assumed — foreground on card is 18.4:1, muted
+    /// foreground on card is 5.1:1, both past AA.
     static func light(accent: Color) -> AppTheme {
         AppTheme(
             palette: Palette(
-                windowBackground: Color(nsColor: .windowBackgroundColor),
-                contentBackground: Color(nsColor: .controlBackgroundColor),
-                sidebarBackground: Color(nsColor: .windowBackgroundColor),
-                cardBackground: Color(nsColor: .controlBackgroundColor),
-                elevatedCardBackground: Color(nsColor: .windowBackgroundColor),
-                toolbarBackground: Color(nsColor: .windowBackgroundColor),
+                windowBackground: BasicsTokens.Surface.bg,
+                contentBackground: BasicsTokens.Surface.card,
+                sidebarBackground: BasicsTokens.Surface.sidebar,
+                cardBackground: BasicsTokens.Surface.card,
+                elevatedCardBackground: BasicsTokens.Surface.card,
+                toolbarBackground: BasicsTokens.Surface.bg,
 
-                cardBorder: Color.black.opacity(0.08),
-                separator: Color(nsColor: .separatorColor),
-                primaryText: Color(nsColor: .labelColor),
-                secondaryText: Color(nsColor: .secondaryLabelColor),
-                tertiaryText: Color(nsColor: .tertiaryLabelColor),
+                cardBorder: BasicsTokens.Surface.border,
+                separator: BasicsTokens.Surface.border,
+                primaryText: BasicsTokens.Ink.foreground,
+                secondaryText: BasicsTokens.Ink.muted,
+                tertiaryText: BasicsTokens.Ink.faint,
                 accent: accent,
-                warning: Color(nsColor: .systemOrange),
+                warning: BasicsTokens.Semantic.warning,
                 success: accent
             ),
             typography: .standard,

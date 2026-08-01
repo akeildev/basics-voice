@@ -2026,6 +2026,8 @@ final class SettingsStore: ObservableObject {
     // MARK: - Preferences Settings
 
     enum AccentColorOption: String, CaseIterable, Identifiable, Codable {
+        /// The Basics logo tile green. Default. Listed first so it leads the picker.
+        case basics = "Basics"
         case cyan = "Cyan"
         case green = "Green"
         case blue = "Blue"
@@ -2038,6 +2040,7 @@ final class SettingsStore: ObservableObject {
 
         var hex: String {
             switch self {
+            case .basics: return "#2F7A53"
             case .cyan: return "#3AC8C6"
             case .green: return "#22C55E"
             case .blue: return "#3B82F6"
@@ -2128,7 +2131,7 @@ final class SettingsStore: ObservableObject {
             guard let raw = self.defaults.string(forKey: Keys.accentColorOption),
                   let option = AccentColorOption(rawValue: raw)
             else {
-                return .cyan
+                return .basics
             }
             return option
         }
@@ -2139,7 +2142,7 @@ final class SettingsStore: ObservableObject {
     }
 
     var accentColor: Color {
-        Color(hex: self.accentColorOption.hex) ?? Color(red: 0.227, green: 0.784, blue: 0.776)
+        Color(hex: self.accentColorOption.hex) ?? Color(hex: "#2F7A53")!
     }
 
     var themePreference: ThemePreference {
@@ -2147,7 +2150,12 @@ final class SettingsStore: ObservableObject {
             guard let raw = self.defaults.string(forKey: Keys.themePreference),
                   let preference = ThemePreference(rawValue: raw)
             else {
-                return .system
+                // Basics is a light system: snow ground, one evergreen accent. The
+                // previous `.system` default meant the app inherited whatever the
+                // Mac was set to, so on a dark Mac none of the palette was visible.
+                // The floating overlays stay dark regardless — they sit on top of
+                // someone else's window, where dark reads better.
+                return .light
             }
             return preference
         }
