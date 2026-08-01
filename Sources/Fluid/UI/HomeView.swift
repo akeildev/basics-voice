@@ -236,14 +236,10 @@ struct HomeView: View {
                 showsDivider: true
             )
         }
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(self.theme.palette.cardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(self.theme.palette.separator, lineWidth: 1)
-                )
-        )
+        // No card. The stats read as page content, not as a third boxed
+        // container competing with Quick setup — with both carded at the same
+        // radius and padding the hierarchy flattened and nothing led the page.
+        // Whitespace is the separator here.
     }
 
     private func statCell(label: String, value: StatValue, showsDivider: Bool) -> some View {
@@ -274,16 +270,10 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(.vertical, 22)
-        .padding(.horizontal, 26)
+        // Page content, not a card interior: no inset from the page edge, no
+        // rules between cells. The columns are separated by space alone.
+        .padding(.trailing, 24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .leading) {
-            if showsDivider {
-                Rectangle()
-                    .fill(self.theme.palette.separator)
-                    .frame(width: 1)
-            }
-        }
     }
 
     // MARK: - Quick setup

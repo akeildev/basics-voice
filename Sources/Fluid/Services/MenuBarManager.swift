@@ -1011,14 +1011,27 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     /// across the top with a visible seam against the page. Make it transparent
     /// and paint the window in the app ground so the chrome and the backdrop
     /// are one plain colour.
+    /// The titlebar keeps its OWN reserved band and the content area begins
+    /// below it — no overlap.
+    ///
+    /// Deliberately NOT here: `.fullSizeContentView`, a hidden title, and any
+    /// `ignoresSafeArea` on the split view. Those were tried to pull the sidebar
+    /// up to the window's top edge, and each one broke something at a different
+    /// layer — the first nav row was clipped behind the traffic lights, and a
+    /// hidden title collapses the titlebar's leading space so the
+    /// `.primaryAction` toolbar group slides to the left. A genuine full-height
+    /// sidebar needs `NavigationSplitView` replaced with a custom split layout,
+    /// not a window flag.
+    ///
+    /// What DOES belong here: a transparent titlebar painted in the app ground,
+    /// so the band is one plain colour continuous with the page rather than the
+    /// system's own lighter material with a seam under it.
     static func applyBasicsChrome(to window: NSWindow) {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(BasicsTokens.Surface.bg)
         window.isOpaque = true
-        // The window title otherwise prints across the top of the content and
-        // reads as a bar cutting over the sidebar. The sidebar names the app;
-        // the titlebar only needs to carry the traffic lights and the toolbar.
-        window.titleVisibility = .hidden
+        window.styleMask.remove(.fullSizeContentView)
+        window.titleVisibility = .visible
     }
 
     private func ensureUsableMainWindow(_ window: NSWindow) {

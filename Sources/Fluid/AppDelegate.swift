@@ -19,12 +19,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private var wasLaunchedAsLoginItem = false
     private var hasDeferredMLXUpgradeOffer = false
 
+    /// The main window is created by two different paths — SwiftUI's
+    /// `WindowGroup` at launch and `MenuBarManager` when opened from the menu
+    /// bar — and a view-side hook only reliably catches one of them. Watching
+    /// for any titled, resizable window covers both, and re-applying on each
+    /// key/update is cheap and idempotent.
+    private func observeMainWindowChrome() {
+        let apply: (Notification) -> Void = { note in
+            guard let window = note.object as? NSWindow else { return }
+            guard window.styleMask.contains(.titled), window.isResizable else { return }
+            MenuBarManager.applyBasicsChrome(to: window)
+        }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didUpdateNotification] {
+            NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main, using: apply
+            )
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Bring up file logging + crash handlers immediately during launch.
         _ = FileLogger.shared
         // Must be read during the launch callback - the current Apple Event identifies
         // login-item launches (used to optionally start silently, see issue #369).
         self.wasLaunchedAsLoginItem = Self.detectLoginItemLaunch()
+        self.observeMainWindowChrome()
         DebugLogger.shared.info(
             "Application launched [loginItemLaunch=\(self.wasLaunchedAsLoginItem)]",
             source: "AppDelegate"

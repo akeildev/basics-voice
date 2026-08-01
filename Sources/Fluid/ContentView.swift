@@ -334,6 +334,12 @@ struct ContentView: View {
                     self.onboardingOnlyView
                 } else {
                     NavigationSplitView(columnVisibility: self.$columnVisibility) {
+                        // No safe-area overrides here. The titlebar owns a fixed
+                        // band at the top of the window and the split view
+                        // begins below it — pushing the column up behind the
+                        // titlebar clipped the first nav row and needed
+                        // per-item padding to paper over, which is the wrong
+                        // layer to fix it at.
                         self.sidebarView
                             .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
                     } detail: {
@@ -1377,7 +1383,10 @@ struct ContentView: View {
 
     private var detailView: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            // The Basics page ground, not the system window colour — this is a
+            // background FILL only; `detailContent` is a sibling and still
+            // respects the titlebar's safe area.
+            self.theme.palette.contentBackground
                 .ignoresSafeArea()
 
             self.detailContent
