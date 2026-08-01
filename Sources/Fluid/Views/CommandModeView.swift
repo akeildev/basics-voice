@@ -1,5 +1,15 @@
+import AppKit
 import SwiftUI
 
+/// Board "05 — Command mode" (`U9-0`), plus `4KZ-0` (running + confirm),
+/// `619-0` (empty + how-to + not ready) and `7OR-0` (menus, dialogs, message
+/// states).
+///
+/// The page is a three-band layout that never scrolls as a whole: a fixed
+/// header + how-to band, a flexible transcript that scrolls on its own, and a
+/// footer band that carries the confirm card, the readiness banner and the
+/// composer. Nothing here is decorative — every control below reads or writes
+/// `CommandModeService`, `SettingsStore` or `ASRService`.
 struct CommandModeView: View {
     @ObservedObject var service: CommandModeService
     @EnvironmentObject var appServices: AppServices
@@ -7,48 +17,44 @@ struct CommandModeView: View {
     @ObservedObject var settings = SettingsStore.shared
     @EnvironmentObject var menuBarManager: MenuBarManager
     var onClose: (() -> Void)?
+
     @State private var inputText: String = ""
 
-    // Local state for available models (derived from shared AI Settings pool)
+    /// Derived from the shared AI Settings model pool, never invented.
     @State private var availableModels: [String] = []
 
-    // UI State
     @State private var showingClearConfirmation = false
     @State private var showHowTo = false
     @State private var isHoveringHowTo = false
+    @State private var isShowingRecentChats = false
 
     @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            self.headerView
+        VStack(alignment: .leading, spacing: 0) {
+            self.pageHeader
+                .padding(.bottom, 18)
 
-            // How To (collapsible)
             self.howToSection
 
-            Divider()
+            self.conversationBand
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Chat Area
-            self.chatArea
-
-            // Pending Command Confirmation (if any)
-            if let pending = service.pendingCommand {
-                self.pendingCommandView(pending)
-            }
-
-            Divider()
-
-            // Input Area
-            self.inputArea
+            self.footerBand
         }
+        .padding(.horizontal, 40)
+        .padding(.top, 34)
+        .padding(.bottom, 30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(self.theme.palette.contentBackground)
         .onAppear {
             self.updateAvailableModels()
-            // Disable notch output when using in-app UI (conversation is shared but notch shouldn't show)
+            // The in-app page owns the conversation while it is visible, so the
+            // notch must not mirror it.
             self.service.enableNotchOutput = false
         }
         .onDisappear {
-            // Re-enable notch output when leaving in-app UI
             self.service.enableNotchOutput = true
         }
         .onChange(of: self.asr.finalText) { _, newText in
@@ -68,98 +74,6 @@ struct CommandModeView: View {
         .onChange(of: self.settings.selectedModelByProvider) { _, _ in
             self.updateAvailableModels()
         }
-    }
-
-    // MARK: - Header
-
-    private var headerView: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Text("Command Mode")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Text("Alpha")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(red: 1.0, green: 0.35, blue: 0.35)) // Command mode red
-                    .cornerRadius(4)
-            }
-
-            Spacer()
-
-            // Chat management buttons
-            HStack(spacing: 4) {
-                // New Chat Button
-                Button(action: { self.service.createNewChat() }) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.bordered)
-                .help("New chat")
-                .disabled(self.service.isProcessing)
-
-                // Recent Chats Menu
-                Menu {
-                    let recentChats = self.service.getRecentChats()
-                    if recentChats.isEmpty {
-                        Text("No recent chats")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(recentChats) { chat in
-                            Button(action: {
-                                if chat.id != self.service.currentChatID {
-                                    self.service.switchToChat(id: chat.id)
-                                }
-                            }) {
-                                HStack {
-                                    if chat.id == self.service.currentChatID {
-                                        Image(systemName: "checkmark")
-                                            .font(.caption)
-                                    }
-                                    Text(chat.title)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(chat.relativeTimeString)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .disabled(self.service.isProcessing)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 32, height: 24)
-                .help("Recent chats")
-
-                // Delete Chat Button - deletes the current chat entirely
-                Button(action: { self.showingClearConfirmation = true }) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.bordered)
-                .help("Delete chat")
-                .disabled(self.service.isProcessing)
-            }
-
-            Divider()
-                .frame(height: 20)
-                .padding(.horizontal, 8)
-
-            // Confirm Before Execute Toggle
-            Toggle(isOn: self.$settings.commandModeConfirmBeforeExecute) {
-                Label("Confirm", systemImage: "checkmark.shield")
-                    .font(.caption)
-            }
-            .toggleStyle(.checkbox)
-            .help("Ask for confirmation before running commands")
-        }
-        .padding()
-        .background(self.theme.palette.windowBackground)
         .confirmationDialog(
             "Delete this chat?",
             isPresented: self.$showingClearConfirmation,
@@ -169,10 +83,140 @@ struct CommandModeView: View {
                 self.service.deleteCurrentChat()
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The conversation and everything it ran are removed. This cannot be undone.")
         }
     }
 
-    // MARK: - How To Section
+    // MARK: - Header
+
+    private var pageHeader: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Modes")
+                    .basicsMicroLabel()
+                    .foregroundStyle(self.theme.palette.accent)
+
+                HStack(spacing: 10) {
+                    Text("Command mode")
+                        .basicsLabel(28)
+                        .foregroundStyle(self.theme.palette.primaryText)
+
+                    Text("Alpha")
+                        .basicsLabel(11)
+                        .foregroundStyle(BasicsTokens.Semantic.danger)
+                        .padding(.horizontal, 8)
+                        .frame(height: 19)
+                        .background(
+                            Capsule().fill(BasicsTokens.Semantic.danger.opacity(0.12))
+                        )
+                }
+
+                Text("Say what you want done instead of what you want written. It proposes a shell command and waits for you to confirm.")
+                    .basicsProse(15)
+                    .lineSpacing(5)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 620, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            self.headerActions
+                .padding(.top, 22)
+        }
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: 8) {
+            self.confirmBeforeRunningPill
+
+            CommandIconButton(systemImage: "plus", tone: .neutral) {
+                self.service.createNewChat()
+            }
+            .disabled(self.service.isProcessing)
+            .help("New chat")
+
+            CommandIconButton(systemImage: "clock.arrow.circlepath", tone: .neutral) {
+                self.isShowingRecentChats.toggle()
+            }
+            .help("Recent chats")
+            .popover(isPresented: self.$isShowingRecentChats) {
+                self.recentChatsMenu
+            }
+
+            CommandIconButton(systemImage: "trash", tone: .muted) {
+                self.showingClearConfirmation = true
+            }
+            .disabled(self.service.isProcessing)
+            .help("Delete chat")
+        }
+        .fixedSize()
+    }
+
+    /// Board § Confirm before running · on / off. Off means commands run the
+    /// moment the agent proposes them — the confirm card never appears.
+    private var confirmBeforeRunningPill: some View {
+        let isOn = self.settings.commandModeConfirmBeforeExecute
+
+        return Button {
+            self.settings.commandModeConfirmBeforeExecute.toggle()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: isOn ? "checkmark.shield" : "shield")
+                    .font(.system(size: 13, weight: .medium))
+                Text("Confirm before running")
+                    .basicsButtonLabel(13)
+            }
+            .foregroundStyle(isOn ? self.theme.palette.accent : self.theme.palette.secondaryText)
+            .padding(.leading, 10)
+            .padding(.trailing, 12)
+            .frame(height: 32)
+            .background(
+                Capsule().fill(
+                    isOn
+                        ? self.theme.palette.accent.opacity(0.10)
+                        : self.theme.palette.sidebarBackground
+                )
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Ask for confirmation before running commands")
+    }
+
+    // MARK: - Recent chats
+
+    private var recentChatsMenu: some View {
+        let recentChats = self.service.getRecentChats()
+
+        return VStack(alignment: .leading, spacing: 0) {
+            if recentChats.isEmpty {
+                Text("No recent chats")
+                    .basicsProse(13)
+                    .foregroundStyle(self.theme.palette.tertiaryText)
+                    .padding(.horizontal, 10)
+                    .frame(height: 34, alignment: .leading)
+            } else {
+                ForEach(recentChats) { chat in
+                    RecentChatRow(
+                        title: chat.title,
+                        relativeTime: chat.relativeTimeString,
+                        isCurrent: chat.id == self.service.currentChatID,
+                        isDisabled: self.service.isProcessing
+                    ) {
+                        if chat.id != self.service.currentChatID {
+                            _ = self.service.switchToChat(id: chat.id)
+                        }
+                        self.isShowingRecentChats = false
+                    }
+                }
+            }
+        }
+        .padding(6)
+        .frame(width: 308)
+    }
+
+    // MARK: - How to use
 
     private var shortcutDisplay: String {
         self.settings.commandModeHotkeyShortcut?.displayString ?? "Not set"
@@ -180,22 +224,39 @@ struct CommandModeView: View {
 
     private var howToSection: some View {
         VStack(spacing: 0) {
-            // Toggle button with hover effect
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { self.showHowTo.toggle() } }) {
-                HStack {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { self.showHowTo.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(
+                            self.showHowTo || self.isHoveringHowTo
+                                ? self.theme.palette.primaryText
+                                : self.theme.palette.accent
+                        )
+
                     Text("How to use")
-                        .font(.caption)
-                    Spacer()
+                        .basicsLabel(13)
+                        .foregroundStyle(
+                            self.isHoveringHowTo || self.showHowTo
+                                ? self.theme.palette.primaryText
+                                : self.theme.palette.secondaryText
+                        )
+
+                    Spacer(minLength: 0)
+
                     Image(systemName: self.showHowTo ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(self.theme.palette.secondaryText)
                 }
-                .foregroundStyle(self.isHoveringHowTo ? .primary : .secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(self.isHoveringHowTo ? self.theme.palette.cardBackground.opacity(0.6) : Color.clear)
-                .cornerRadius(4)
+                .padding(.horizontal, self.isHoveringHowTo ? 10 : 2)
+                .frame(height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(self.isHoveringHowTo ? self.theme.palette.sidebarBackground : Color.clear)
+                )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { hovering in
@@ -203,86 +264,129 @@ struct CommandModeView: View {
             }
 
             if self.showHowTo {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Start section
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Getting Started")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 4) {
-                            Text("Press")
-                                .font(.caption)
-                            Text(self.shortcutDisplay)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(self.theme.palette.cardBackground.opacity(0.8))
-                                .cornerRadius(4)
-                            Text("to open Command Mode, speak your command, then press again to send.")
-                                .font(.caption)
-                        }
-                        .foregroundStyle(.primary.opacity(0.8))
-                    }
-
-                    // Examples
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Examples")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            self.howToItem("\"List files in my Downloads folder\"")
-                            self.howToItem("\"Create a folder called Projects on Desktop\"")
-                            self.howToItem("\"What's my IP address?\"")
-                            self.howToItem("\"Open Safari\"")
-                        }
-                    }
-
-                    // Caution note
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("Caution")
-                                .fontWeight(.semibold)
-                        }
-                        .font(.caption)
-
-                        Text("AI can make mistakes. Avoid dangerous commands like deleting important files. Destructive actions will ask for confirmation.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                self.howToPanel
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(self.theme.palette.contentBackground)
+        .overlay(alignment: .top) { self.hairline }
+        .overlay(alignment: .bottom) { self.hairline }
     }
 
-    private func howToItem(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Text("•")
-                .foregroundStyle(.secondary)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.8))
+    private var hairline: some View {
+        Rectangle()
+            .fill(self.theme.palette.cardBorder)
+            .frame(height: 1)
+    }
+
+    private var howToPanel: some View {
+        HStack(alignment: .top, spacing: 56) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Getting started")
+                    .basicsMicroLabel()
+                    .foregroundStyle(self.theme.palette.secondaryText)
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Press")
+                        .basicsProse(14)
+                        .foregroundStyle(self.theme.palette.secondaryText)
+
+                    CommandKeyCap(text: self.shortcutDisplay)
+
+                    Text("to open Command mode, speak your command, then press again to send.")
+                        .basicsProse(14)
+                        .lineSpacing(5)
+                        .foregroundStyle(self.theme.palette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(self.theme.palette.warning)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Caution")
+                            .basicsLabel(12)
+                            .foregroundStyle(self.theme.palette.primaryText)
+
+                        Text("AI can make mistakes. Avoid dangerous commands like deleting important files. Destructive actions will ask for confirmation.")
+                            .basicsProse(13)
+                            .lineSpacing(5)
+                            .foregroundStyle(self.theme.palette.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 6)
+            }
+            .frame(width: 440, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Examples")
+                    .basicsMicroLabel()
+                    .foregroundStyle(self.theme.palette.secondaryText)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    self.howToExample("“List files in my Downloads folder”")
+                    self.howToExample("“Create a folder called Projects on Desktop”")
+                    self.howToExample("“What's my IP address?”")
+                    self.howToExample("“Open Safari”")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 24)
+        .padding(.trailing, 2)
+        .padding(.top, 4)
+        .padding(.bottom, 22)
+    }
+
+    private func howToExample(_ text: String) -> some View {
+        Text(text)
+            .basicsProse(14)
+            .lineSpacing(5)
+            .foregroundStyle(self.theme.palette.primaryText)
+    }
+
+    // MARK: - Conversation
+
+    @ViewBuilder
+    private var conversationBand: some View {
+        if self.service.conversationHistory.isEmpty, !self.service.isProcessing {
+            self.emptyState
+        } else {
+            self.transcript
         }
     }
 
-    // MARK: - Chat Area
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(self.theme.palette.accent.opacity(0.10))
+                    .frame(width: 52, height: 52)
+                Image(systemName: "terminal")
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(self.theme.palette.accent)
+            }
 
-    @State private var isThinkingExpanded = false
+            Text("No commands yet")
+                .basicsLabel(18)
+                .foregroundStyle(self.theme.palette.primaryText)
 
-    private var chatArea: some View {
+            Text("Say or type what you want done. Every command is shown to you before it runs.")
+                .basicsProse(14)
+                .lineSpacing(5)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(self.theme.palette.secondaryText)
+                .frame(maxWidth: 430)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var transcript: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 18) {
                     ForEach(self.service.conversationHistory) { message in
                         MessageBubble(message: message)
                             .id(message.id)
@@ -295,76 +399,40 @@ struct CommandModeView: View {
 
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 18)
+                .padding(.bottom, 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(self.theme.palette.cardBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
-                    )
-            )
             .onChange(of: self.service.conversationHistory.count) { _, _ in
                 self.scrollToBottom(proxy)
             }
             .onChange(of: self.service.isProcessing) { _, isProcessing in
-                // Scroll when processing starts, not on every streaming update
-                if isProcessing {
-                    self.scrollToBottom(proxy)
-                    self.isThinkingExpanded = false // Collapse thinking for new request
-                }
+                // Scroll when processing starts, not on every streaming update.
+                if isProcessing { self.scrollToBottom(proxy) }
             }
             .onChange(of: self.service.currentStep) { _, _ in
                 self.scrollToBottom(proxy)
             }
-            // Removed: .onChange(of: service.streamingText) - causes scroll on every token, too expensive
         }
     }
-
-    // MARK: - Processing Indicator (Minimal with Shimmer)
 
     private var processingIndicator: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CommandShimmerText(text: "Thinking")
-                .padding(.horizontal, 12)
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(self.theme.palette.accent)
 
-            if self.settings.showThinkingTokens && !self.service.streamingThinkingText.isEmpty {
-                ScrollView(.vertical, showsIndicators: true) {
-                    Text(self.service.streamingThinkingText)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 140)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+                CommandShimmerText(text: "Thinking")
+            }
+            .frame(height: 72)
+
+            if self.settings.showThinkingTokens, !self.service.streamingThinkingText.isEmpty {
+                ThinkingTranscript(text: self.service.streamingThinkingText, maxHeight: 140)
+                    .frame(maxWidth: 720, alignment: .leading)
             }
         }
-        .frame(maxWidth: 520, minHeight: 72, alignment: .leading)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-    }
-
-    private var currentStepLabel: String {
-        guard let step = service.currentStep else { return "Working..." }
-        switch step {
-        case .thinking: return "Thinking..."
-        case let .checking(cmd): return "Checking \(self.truncateCommand(cmd, to: 30))"
-        case let .executing(cmd): return "Running \(self.truncateCommand(cmd, to: 30))"
-        case .verifying: return "Verifying..."
-        case let .completed(success): return success ? "Done" : "Stopped"
-        }
-    }
-
-    private func truncateCommand(_ cmd: String, to limit: Int) -> String {
-        if cmd.count > limit {
-            return String(cmd.prefix(limit - 3)) + "..."
-        }
-        return cmd
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -375,198 +443,337 @@ struct CommandModeView: View {
         }
     }
 
-    // MARK: - Pending Command
+    // MARK: - Footer band
 
-    private func pendingCommandView(_ pending: CommandModeService.PendingCommand) -> some View {
-        VStack(spacing: 10) {
-            Divider()
-
-            HStack {
-                Image(systemName: "exclamationmark.shield.fill")
-                    .foregroundStyle(.orange)
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Confirm Execution")
-                        .fontWeight(.semibold)
-                    if let purpose = pending.purpose {
-                        Text(purpose)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
+    private var footerBand: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let pending = service.pendingCommand {
+                self.pendingCommandCard(pending)
             }
 
-            // Command preview
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Image(systemName: "terminal.fill")
-                        .font(.caption)
-                    Text("Command")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    Spacer()
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(self.theme.palette.cardBackground)
-
-                Divider()
-
-                Text(pending.command)
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(10)
+            if let issue = self.settings.commandModeReadinessIssue {
+                self.readinessBanner(issue)
             }
-            .background(self.theme.palette.contentBackground)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-            )
 
-            HStack(spacing: 12) {
-                Button(action: { self.service.cancelPendingCommand() }) {
-                    Label("Cancel", systemImage: "xmark")
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.escape, modifiers: [])
-
-                Button(action: {
-                    Task { await self.service.confirmAndExecute() }
-                }) {
-                    Label("Run Command", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .keyboardShortcut(.return, modifiers: [])
-            }
+            self.composer
         }
-        .padding()
-        .background(Color.orange.opacity(0.08))
+        .padding(.top, 18)
     }
 
-    // MARK: - Input Area
+    // MARK: - Confirm execution
 
-    private var inputArea: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let issue = self.settings.commandModeReadinessIssue {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Text(issue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+    private func pendingCommandCard(_ pending: CommandModeService.PendingCommand) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 9) {
+                Image(systemName: "exclamationmark.shield")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(self.theme.palette.warning)
 
-                    Spacer(minLength: 8)
-
-                    Button("AI Settings") {
-                        AppNavigationRouter.shared.request(.aiEnhancements)
-                    }
-                    .font(.caption)
-                    .buttonStyle(.plain)
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 10)
-                .padding(.top, 2)
+                Text("Confirm execution")
+                    .basicsLabel(15)
+                    .foregroundStyle(self.theme.palette.primaryText)
             }
 
-            VStack(alignment: .leading, spacing: 14) {
-                TextField("Type a command or ask a question...", text: self.$inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .lineLimit(1...4)
-                    .onSubmit {
-                        self.submitCommand()
-                    }
+            if let purpose = pending.purpose, !purpose.isEmpty {
+                Text(purpose)
+                    .basicsProse(14)
+                    .lineSpacing(5)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 760, alignment: .leading)
+            }
 
-                HStack(spacing: 10) {
-                    Toggle("Sync", isOn: self.$settings.commandModeLinkedToGlobal)
-                        .toggleStyle(.checkbox)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .help("Use the same provider and model selected in AI Enhancement.")
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 7) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.theme.palette.warning)
+                    Text("Command")
+                        .basicsMicroLabel()
+                        .foregroundStyle(self.theme.palette.secondaryText)
+                }
 
-                    SearchableProviderPicker(
-                        builtInProviders: self.verifiedBuiltInProvidersList,
-                        savedProviders: self.verifiedSavedProviders,
-                        selectedProviderID: Binding(
-                            get: { self.settings.effectiveCommandModeProviderID },
-                            set: { newValue in
-                                guard !self.settings.commandModeLinkedToGlobal else { return }
-                                guard !self.isPrivateAIProviderID(newValue) else { return }
-                                self.settings.commandModeSelectedProviderID = newValue
-                                self.updateAvailableModels()
-                            }
-                        ),
-                        controlWidth: 140,
-                        controlHeight: 30
-                    )
-                    .disabled(self.settings.commandModeLinkedToGlobal)
-                    .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
-
-                    SearchableModelPicker(
-                        models: self.availableModels,
-                        selectedModel: Binding(
-                            get: { self.settings.effectiveCommandModeSelectedModel },
-                            set: { newValue in
-                                guard !self.settings.commandModeLinkedToGlobal else { return }
-                                self.settings.commandModeSelectedModel = newValue
-                            }
-                        ),
-                        onRefresh: nil,
-                        isRefreshing: false,
-                        selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
-                        controlWidth: 180,
-                        controlHeight: 30
-                    )
-                    .disabled(self.settings.commandModeLinkedToGlobal)
-
-                    Spacer(minLength: 12)
-
-                    Button(action: self.toggleRecording) {
-                        Image(systemName: self.asr.isRunning ? "stop.fill" : "mic")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundStyle(self.asr.isRunning ? Color.red : .secondary)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(self.service.isProcessing)
-                    .help(self.asr.isRunning ? "Stop voice command" : "Start voice command")
-
-                    Button(action: self.submitCommand) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundStyle(self.canSubmitCommand ? Color.white : .secondary)
-                            .background(
-                                Circle()
-                                    .fill(self.canSubmitCommand ? self.theme.palette.accent : self.theme.palette.cardBackground)
+                Text(pending.command)
+                    .basicsMono(12.5)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                    .textSelection(.enabled)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                            .fill(self.theme.palette.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                                    .stroke(self.theme.palette.warning.opacity(0.5), lineWidth: 1)
                             )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!self.canSubmitCommand)
-                    .help("Run command")
-                }
+                    )
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await self.service.confirmAndExecute() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Run command")
+                            .basicsButtonLabel(13)
+                        Text("return")
+                            .basicsMono(10)
+                            .foregroundStyle(Color.white.opacity(0.75))
+                    }
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(self.theme.palette.warning.commandModeDarkened(0.42))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: [])
+
+                Button {
+                    self.service.cancelPendingCommand()
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("Cancel")
+                            .basicsButtonLabel(13)
+                            .foregroundStyle(self.theme.palette.primaryText)
+                        Text("esc")
+                            .basicsMono(10)
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(self.theme.palette.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
+                            )
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .fill(self.theme.palette.warning.opacity(0.07))
+                .overlay(
+                    RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                        .stroke(self.theme.palette.warning.opacity(0.45), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Readiness banner
+
+    private func readinessBanner(_ issue: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(self.theme.palette.warning)
+
+            Text(issue)
+                .basicsProse(14)
+                .lineSpacing(4)
+                .lineLimit(2)
+                .foregroundStyle(self.theme.palette.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button("AI settings") {
+                AppNavigationRouter.shared.request(.aiEnhancements)
+            }
+            .buttonStyle(.plain)
+            .basicsButtonLabel(13)
+            .foregroundStyle(self.theme.palette.primaryText)
+            .padding(.horizontal, 13)
+            .frame(height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(self.theme.palette.contentBackground)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(self.theme.palette.cardBackground)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.55), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
                     )
             )
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(self.theme.palette.windowBackground)
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                .fill(self.theme.palette.warning.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
+                        .stroke(self.theme.palette.warning.opacity(0.40), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Composer
+
+    private var composer: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack(alignment: .topLeading) {
+                    if self.inputText.isEmpty {
+                        Text("Type a command or ask a question…")
+                            .basicsProse(15)
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextField("", text: self.$inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .basicsProse(15)
+                        .foregroundStyle(self.theme.palette.primaryText)
+                        .lineLimit(1 ... 4)
+                        .onSubmit { self.submitCommand() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: self.toggleRecording) {
+                    Image(systemName: self.asr.isRunning ? "stop.fill" : "mic")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(
+                            self.asr.isRunning
+                                ? Color.white
+                                : self.theme.palette.primaryText
+                        )
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle()
+                                .fill(
+                                    self.asr.isRunning
+                                        ? BasicsTokens.Semantic.danger
+                                        : self.theme.palette.cardBackground
+                                )
+                                .overlay(
+                                    Circle().stroke(
+                                        self.asr.isRunning ? Color.clear : self.theme.palette.cardBorder,
+                                        lineWidth: 1
+                                    )
+                                )
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(self.service.isProcessing)
+                .help(self.asr.isRunning ? "Stop voice command" : "Start voice command")
+
+                Button(action: self.submitCommand) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle().fill(
+                                self.canSubmitCommand
+                                    ? self.theme.palette.accent
+                                    : self.theme.palette.accent.opacity(0.35)
+                            )
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!self.canSubmitCommand)
+                .help("Run command")
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 14)
+            .padding(.vertical, 14)
+
+            self.composerFooter
+        }
+        .background(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .fill(self.theme.palette.cardBackground)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
+                .stroke(self.theme.palette.cardBorder, lineWidth: 1)
+        )
+        .basicsShadows([
+            BasicsShadow(color: BasicsTokens.Ink.foreground.opacity(0.04), radius: 1, y: 1),
+            BasicsShadow(color: BasicsTokens.Ink.foreground.opacity(0.06), radius: 12, y: 8),
+        ])
+    }
+
+    private var composerFooter: some View {
+        HStack(spacing: 16) {
+            Button {
+                self.settings.commandModeLinkedToGlobal.toggle()
+            } label: {
+                HStack(spacing: 9) {
+                    CommandCheckbox(isOn: self.settings.commandModeLinkedToGlobal)
+                    Text("Sync with AI enhancements")
+                        .basicsLabel(12)
+                        .foregroundStyle(self.theme.palette.secondaryText)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Use the same provider and model selected in AI Enhancement.")
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                SearchableProviderPicker(
+                    builtInProviders: self.verifiedBuiltInProvidersList,
+                    savedProviders: self.verifiedSavedProviders,
+                    selectedProviderID: Binding(
+                        get: { self.settings.effectiveCommandModeProviderID },
+                        set: { newValue in
+                            guard !self.settings.commandModeLinkedToGlobal else { return }
+                            guard !self.isPrivateAIProviderID(newValue) else { return }
+                            self.settings.commandModeSelectedProviderID = newValue
+                            self.updateAvailableModels()
+                        }
+                    ),
+                    controlWidth: 140,
+                    controlHeight: 30
+                )
+                .disabled(self.settings.commandModeLinkedToGlobal)
+                .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
+
+                SearchableModelPicker(
+                    models: self.availableModels,
+                    selectedModel: Binding(
+                        get: { self.settings.effectiveCommandModeSelectedModel },
+                        set: { newValue in
+                            guard !self.settings.commandModeLinkedToGlobal else { return }
+                            self.settings.commandModeSelectedModel = newValue
+                        }
+                    ),
+                    onRefresh: nil,
+                    isRefreshing: false,
+                    selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
+                    controlWidth: 180,
+                    controlHeight: 30
+                )
+                .disabled(self.settings.commandModeLinkedToGlobal)
+                .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
+            }
+            .fixedSize()
+        }
+        .padding(.leading, 18)
+        .padding(.trailing, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.theme.palette.sidebarBackground)
+        .overlay(alignment: .top) { self.hairline }
     }
 
     // MARK: - Actions
@@ -640,9 +847,197 @@ struct CommandModeView: View {
     }
 }
 
-// MARK: - Shimmer Effect (Cursor-style)
+// MARK: - Header icon button
 
+/// Board § Header actions. 32 × 32, card ground, 1px hairline, radius 8.
+private struct CommandIconButton: View {
+    enum Tone {
+        case neutral
+        case muted
+    }
+
+    @Environment(\.theme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    let systemImage: String
+    let tone: Tone
+    let action: () -> Void
+
+    private var foreground: Color {
+        if !self.isEnabled { return self.theme.palette.tertiaryText }
+        return self.tone == .neutral ? self.theme.palette.primaryText : self.theme.palette.secondaryText
+    }
+
+    var body: some View {
+        Button(action: self.action) {
+            Image(systemName: self.systemImage)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(self.foreground)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            self.isHovered && self.isEnabled
+                                ? self.theme.palette.sidebarBackground
+                                : self.theme.palette.cardBackground
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(self.theme.palette.cardBorder, lineWidth: 1)
+                        )
+                )
+                .opacity(self.isEnabled ? 1 : 0.45)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { self.isHovered = $0 }
+    }
+}
+
+// MARK: - Recent chat row
+
+private struct RecentChatRow: View {
+    @Environment(\.theme) private var theme
+    @State private var isHovered = false
+
+    let title: String
+    let relativeTime: String
+    let isCurrent: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    private var fill: Color {
+        if self.isCurrent { return self.theme.palette.accent.opacity(0.10) }
+        if self.isHovered, !self.isDisabled { return self.theme.palette.sidebarBackground }
+        return .clear
+    }
+
+    var body: some View {
+        Button(action: self.action) {
+            HStack(spacing: 8) {
+                Group {
+                    if self.isCurrent {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(self.theme.palette.accent)
+                    }
+                }
+                .frame(width: 14)
+
+                Text(self.title)
+                    .basicsLabel(13)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(self.relativeTime)
+                    .basicsMono(10)
+                    .foregroundStyle(self.theme.palette.tertiaryText)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(self.fill)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(self.isDisabled)
+        .opacity(self.isDisabled ? 0.4 : 1)
+        .onHover { self.isHovered = $0 }
+    }
+}
+
+// MARK: - Key cap
+
+/// Board § How to use. The hotkey chip: muted well, one-step-stronger outline,
+/// JetBrains Mono — a key is a technical value, never a label.
+private struct CommandKeyCap: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    let text: String
+
+    var body: some View {
+        Text(self.text)
+            .basicsMono(12, weight: .medium)
+            .foregroundStyle(self.theme.palette.primaryText)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                    .fill(self.theme.palette.sidebarBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                            .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
+                    )
+            )
+    }
+}
+
+// MARK: - Checkbox
+
+private struct CommandCheckbox: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    let isOn: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(self.isOn ? self.theme.palette.accent : self.theme.palette.cardBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(
+                        self.isOn ? Color.clear : BasicsBorder.strong(self.theme, self.colorScheme),
+                        lineWidth: 1
+                    )
+            )
+            .overlay {
+                if self.isOn {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.white)
+                }
+            }
+            .frame(width: 15, height: 15)
+    }
+}
+
+// MARK: - Thinking transcript
+
+/// Board § Thinking. A 2px brand-soft rail instead of a box — reasoning is an
+/// aside, not a card.
+struct ThinkingTranscript: View {
+    @Environment(\.theme) private var theme
+    let text: String
+    let maxHeight: CGFloat
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(self.theme.palette.accent.opacity(0.10))
+                .frame(width: 2)
+
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(self.text)
+                    .basicsProse(12)
+                    .lineSpacing(5)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxHeight: self.maxHeight)
+    }
+}
+
+// MARK: - Shimmer
+
+/// The one animated element on the page. Base is faint ink; a single brand-lit
+/// band sweeps it so "working" reads without a spinner.
 struct CommandShimmerText: View {
+    @Environment(\.theme) private var theme
     let text: String
 
     var body: some View {
@@ -655,15 +1050,15 @@ struct CommandShimmerText: View {
             let trailingEdge = min(1, center + 0.18)
 
             Text(self.text)
-                .font(.system(size: 13, weight: .semibold))
+                .basicsLabel(15)
                 .foregroundStyle(
                     LinearGradient(
                         stops: [
-                            .init(color: Color.secondary.opacity(0.42), location: 0),
-                            .init(color: Color.secondary.opacity(0.42), location: leadingEdge),
-                            .init(color: Color.primary.opacity(0.98), location: center),
-                            .init(color: Color.secondary.opacity(0.42), location: trailingEdge),
-                            .init(color: Color.secondary.opacity(0.42), location: 1),
+                            .init(color: BasicsTokens.Ink.faint, location: 0),
+                            .init(color: BasicsTokens.Ink.faint, location: leadingEdge),
+                            .init(color: self.theme.palette.primaryText, location: center),
+                            .init(color: BasicsTokens.Ink.faint, location: trailingEdge),
+                            .init(color: BasicsTokens.Ink.faint, location: 1),
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -674,54 +1069,68 @@ struct CommandShimmerText: View {
     }
 }
 
-// MARK: - Message Bubble (Minimal Design)
+// MARK: - Message bubble
 
+/// Board § Transcript. One turn: the user's prompt, the agent's reasoning, the
+/// command it called, or the tool output that came back.
 struct MessageBubble: View {
     let message: CommandModeService.Message
     @Environment(\.theme) private var theme
     @State private var isThinkingExpanded: Bool = false
 
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 0) {
             if self.message.role == .user {
-                Spacer()
+                Spacer(minLength: 0)
                 self.userMessageView
             } else {
                 self.agentMessageView
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: - User Message
+    // MARK: - User
 
     private var userMessageView: some View {
         Text(self.message.content)
-            .font(.system(size: 13))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(self.theme.palette.accent.opacity(0.15))
-            .cornerRadius(10)
-            .frame(maxWidth: 380, alignment: .trailing)
+            .basicsProse(14)
+            .lineSpacing(4)
+            .foregroundStyle(self.theme.palette.primaryText)
+            .textSelection(.enabled)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 11)
+            .frame(maxWidth: 380, alignment: .leading)
+            .background(self.theme.palette.accent.opacity(0.10))
+            .clipShape(
+                UnevenRoundedRectangle(
+                    cornerRadii: RectangleCornerRadii(
+                        topLeading: 14,
+                        bottomLeading: 14,
+                        bottomTrailing: 4,
+                        topTrailing: 14
+                    ),
+                    style: .continuous
+                )
+            )
     }
 
-    // MARK: - Agent Message
+    // MARK: - Agent
 
     private var agentMessageView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Thinking section (collapsible) - only if setting is enabled
+        VStack(alignment: .leading, spacing: 8) {
+            if let tc = message.toolCall, let purpose = tc.purpose, !purpose.isEmpty {
+                Text(purpose)
+                    .basicsProse(12)
+                    .lineSpacing(3)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+            }
+
             if let thinking = message.thinking, !thinking.isEmpty, SettingsStore.shared.showThinkingTokens {
                 self.thinkingSection(thinking)
             }
 
-            // Purpose label (minimal, gray)
-            if let tc = message.toolCall, let purpose = tc.purpose {
-                Text(purpose)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-
-            // Main content
             if self.message.role == .tool {
                 self.toolOutputView
             } else if let tc = message.toolCall {
@@ -730,145 +1139,157 @@ struct MessageBubble: View {
                 self.textContentView
             }
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: 720, alignment: .leading)
     }
 
-    // MARK: - Thinking Section (Persisted, Collapsible)
+    // MARK: - Thinking
 
     private func thinkingSection(_ thinking: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { self.isThinkingExpanded.toggle() } }) {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { self.isThinkingExpanded.toggle() }
+            } label: {
                 HStack(spacing: 6) {
                     Text("Thinking")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    if self.isThinkingExpanded {
-                        Text("\(thinking.count) chars")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                    }
+                        .basicsMicroLabel()
+                        .foregroundStyle(self.theme.palette.tertiaryText)
 
                     Image(systemName: self.isThinkingExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(self.theme.palette.tertiaryText)
 
-                    Spacer(minLength: 0)
+                    if self.isThinkingExpanded {
+                        Text("\(thinking.count) chars")
+                            .basicsMono(10)
+                            .foregroundStyle(self.theme.palette.tertiaryText)
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            // Expanded content
             if self.isThinkingExpanded {
-                ScrollView(.vertical, showsIndicators: true) {
-                    Text(thinking)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 8)
-                }
-                .frame(maxHeight: 150)
+                ThinkingTranscript(text: thinking, maxHeight: 150)
             }
         }
-        .background(self.theme.palette.cardBackground.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
-    // MARK: - Command Call View (Minimal)
+    // MARK: - Command call
 
     private func commandCallView(_ tc: CommandModeService.Message.ToolCall) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Reasoning text (if meaningful)
-            if !self.message.content.isEmpty &&
-                !self.message.content.lowercased().starts(with: "checking") &&
-                !self.message.content.lowercased().starts(with: "executing") &&
-                !self.message.content.lowercased().starts(with: "i'll")
+        VStack(alignment: .leading, spacing: 8) {
+            // The agent's own narration, unless it is just restating the call.
+            if !self.message.content.isEmpty,
+               !self.message.content.lowercased().starts(with: "checking"),
+               !self.message.content.lowercased().starts(with: "executing"),
+               !self.message.content.lowercased().starts(with: "i'll")
             {
                 Text(self.message.content)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .basicsProse(12)
+                    .lineSpacing(3)
+                    .foregroundStyle(self.theme.palette.secondaryText)
             }
 
-            // Command block - clean and simple
-            Text(tc.command)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(self.theme.palette.contentBackground)
-                .cornerRadius(6)
+            HStack(alignment: .top, spacing: 10) {
+                Text("$")
+                    .basicsMono(12, weight: .medium)
+                    .foregroundStyle(self.theme.palette.tertiaryText)
+
+                Text(tc.command)
+                    .basicsMono(12)
+                    .lineSpacing(5)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                    .fill(self.theme.palette.sidebarBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                            .stroke(self.theme.palette.cardBorder, lineWidth: 1)
+                    )
+            )
         }
     }
 
-    // MARK: - Tool Output View (Minimal)
+    // MARK: - Tool output
 
     private var toolOutputView: some View {
         let parsed = self.parseToolOutput(self.message.content)
+        let tone = parsed.success ? self.theme.palette.accent : BasicsTokens.Semantic.danger
 
-        return VStack(alignment: .leading, spacing: 0) {
-            // Minimal header - just status and time
-            HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: parsed.success ? "checkmark.circle" : "xmark.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tone)
+
                 Text(parsed.success ? "Success" : "Error")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(parsed.success ? .primary : .secondary)
-
-                Spacer()
+                    .basicsLabel(12)
+                    .foregroundStyle(tone)
 
                 if parsed.executionTime > 0 {
                     Text("\(parsed.executionTime)ms")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .basicsMono(11)
+                        .foregroundStyle(self.theme.palette.tertiaryText)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
 
-            // Output content (if any)
-            if !parsed.output.isEmpty || parsed.error != nil {
-                Divider()
-                    .padding(.horizontal, 10)
-
+            if !parsed.output.isEmpty || (parsed.error?.isEmpty == false) {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 2) {
                         if !parsed.output.isEmpty {
                             Text(self.markdownAttributedString(from: parsed.output))
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .basicsMono(11)
+                                .lineSpacing(5)
+                                .foregroundStyle(
+                                    parsed.success
+                                        ? self.theme.palette.secondaryText
+                                        : self.theme.palette.primaryText
+                                )
                                 .textSelection(.enabled)
                         }
 
                         if let error = parsed.error, !error.isEmpty {
                             Text(error)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .basicsMono(11)
+                                .lineSpacing(5)
+                                .foregroundStyle(self.theme.palette.primaryText)
                                 .textSelection(.enabled)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 120)
+                .frame(maxHeight: 140)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: BasicsTokens.Radius.sm, style: .continuous)
+                        .fill(
+                            parsed.success
+                                ? self.theme.palette.sidebarBackground
+                                : BasicsTokens.Semantic.danger.opacity(0.07)
+                        )
+                )
             }
         }
-        .background(self.theme.palette.cardBackground.opacity(0.85))
-        .cornerRadius(6)
     }
-
-    // MARK: - Text Content View (Minimal)
 
     private var textContentView: some View {
         Text(self.markdownAttributedString(from: self.message.content))
-            .font(.system(size: 13))
+            .basicsProse(14)
+            .lineSpacing(5)
+            .foregroundStyle(self.theme.palette.primaryText)
             .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: - Markdown Rendering
+    // MARK: - Markdown
 
     private func markdownAttributedString(from text: String) -> AttributedString {
         do {
@@ -906,6 +1327,22 @@ struct MessageBubble: View {
             error: parsed["error"] as? String,
             exitCode: parsed["exitCode"] as? Int ?? 0,
             executionTime: parsed["executionTimeMs"] as? Int ?? 0
+        )
+    }
+}
+
+// MARK: - Colour helper
+
+private extension Color {
+    /// The confirm card's Run button is a deliberately darkened warning so white
+    /// text clears contrast on it. Derived from the token, never a second hex.
+    func commandModeDarkened(_ amount: Double) -> Color {
+        let base = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.black
+        return Color(
+            red: Double(base.redComponent) * (1 - amount),
+            green: Double(base.greenComponent) * (1 - amount),
+            blue: Double(base.blueComponent) * (1 - amount),
+            opacity: Double(base.alphaComponent)
         )
     }
 }

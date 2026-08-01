@@ -227,16 +227,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
+    /// The coordinator's own "the user has answered this" flag. Read here so a
+    /// second launch path, a deferred login-item offer, or a re-activation can
+    /// never raise the panel again once it has been answered once. Reading the
+    /// key rather than adding one keeps a single source of truth.
+    private static let mlxOfferHandledDefaultsKey = "FluidIntelligenceMLXUpgrade163OfferHandled"
+
     @MainActor
     private func showMLXUpgradeOffer() {
-        let alert = NSAlert()
-        alert.messageText = "Fluid-1 is now 2.2x faster"
-        alert.informativeText = "A new 3.77 GB MLX model is available for Apple silicon. Continue to AI Enhancement to download and verify it. Your current slower model will keep working unless you choose to upgrade."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Continue to Download")
-        alert.addButton(withTitle: "Keep Current Model")
+        // A blocking modal 1.2 s after launch is the most intrusive thing this
+        // app does. Once ever, or not at all.
+        guard !UserDefaults.standard.bool(forKey: Self.mlxOfferHandledDefaultsKey) else {
+            DebugLogger.shared.debug(
+                "Faster-model offer already answered; not showing again",
+                source: "AppDelegate"
+            )
+            return
+        }
 
-        if alert.runModal() == .alertFirstButtonReturn {
+        if ChromeAlerts.fasterModelOffer().runModal() == .alertFirstButtonReturn {
             PrivateAIMLXUpgradeCoordinator.beginUpgrade()
             AppNavigationRouter.shared.request(.aiEnhancements)
             self.bringMainWindowToFront()
@@ -373,26 +382,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 )
                 // If we get here, an update was found; SimpleUpdater will relaunch on success
                 // Show a quick heads-up before app restarts
-                self.showUpdateAlert(
-                    title: "Update Found!",
-                    message: "A new version is available and will be installed now."
-                )
+                self.present(ChromeAlerts.updateAvailable(), named: "Update available")
             } catch {
                 if let pmkError = error as? PMKError, pmkError.isCancelled {
                     DebugLogger.shared.info("App is already up-to-date", source: "AppDelegate")
-                    let isBeta = SettingsStore.shared.betaReleasesEnabled
-                    self.showUpdateAlert(
-                        title: isBeta ? "No Beta Updates" : "No Updates",
-                        message: isBeta
-                            ? "You're already running the latest build available in the beta channel."
-                            : "You're already running the latest version of Fluid!"
+                    self.present(
+                        ChromeAlerts.upToDate(isBeta: SettingsStore.shared.betaReleasesEnabled),
+                        named: "Up to date"
                     )
                 } else {
                     DebugLogger.shared.error("Update check failed: \(error)", source: "AppDelegate")
-                    self.showUpdateAlert(
-                        title: "Update Check Failed",
-                        message: "Unable to check for updates. Please try again later.\n\nError: \(error.localizedDescription)"
-                    )
+                    self.present(ChromeAlerts.updateCheckFailed(error), named: "Update check failed")
                 }
             }
         }
@@ -461,14 +461,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private func showUpdateNotification(version: String) {
         DebugLogger.shared.info("Showing update notification for version \(version)", source: "AppDelegate")
 
-        let alert = NSAlert()
-        alert.messageText = "Update Available"
-        alert.informativeText = "FluidVoice \(version) is now available. Would you like to install it now?\n\nThe app will restart automatically after installation."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Install Now")
-        alert.addButton(withTitle: "Later")
-
-        let response = alert.runModal()
+        let response = ChromeAlerts.updateFound(version: version).runModal()
 
         if response == .alertFirstButtonReturn {
             DebugLogger.shared.info("User chose to install update now", source: "AppDelegate")
@@ -480,14 +473,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
+    /// Runs an alert built by `ChromeAlerts` and logs which one it was. The
+    /// wording lives in the table, never here — this call site used to keep its
+    /// own divergent copy ("No Updates", "Fluid!") and the two disagreed.
     @MainActor
-    private func showUpdateAlert(title: String, message: String) {
-        DebugLogger.shared.info("🔔 Showing alert: \(title)", source: "AppDelegate")
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+    private func present(_ alert: NSAlert, named name: String) {
+        DebugLogger.shared.info("🔔 Showing alert: \(name)", source: "AppDelegate")
         alert.runModal()
     }
 }

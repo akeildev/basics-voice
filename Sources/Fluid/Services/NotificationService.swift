@@ -127,7 +127,9 @@ enum NotificationService {
 
     private static func deliverTaskResult(success: Bool, detail: String, using center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
-        content.title = success ? "Tasks updated" : "Task command failed"
+        // Title is the outcome; the body is the real detail the caller passed —
+        // which task was added, or which phrase matched nothing.
+        content.title = success ? "Tasks updated" : "Couldn’t add that task"
         content.body = detail
         content.sound = nil
         content.userInfo = [UserInfoKey.kind: Kind.taskResult]
@@ -149,7 +151,8 @@ enum NotificationService {
 
     private static func deliverPokeResult(success: Bool, detail: String, using center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
-        content.title = success ? "Sent to Instinct ✓" : "Instinct send failed"
+        // No check glyph in the title — the banner's own presence is the tick.
+        content.title = success ? "Sent to Instinct" : "Couldn’t send to Instinct"
         content.body = detail
         content.sound = nil
         content.userInfo = [UserInfoKey.kind: Kind.pokeResult]
@@ -172,9 +175,11 @@ enum NotificationService {
 
     private static func deliverAIProcessingFallback(error: String, using center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
-        content.title = "AI Enhancement failed"
-        content.body = "Typed raw transcription instead."
-        content.subtitle = error
+        // macOS stacks title → subtitle → body, so the reassurance sits second
+        // and the raw reason lands on its own last line.
+        content.title = "AI enhancement didn’t run"
+        content.subtitle = "Typed the raw transcript instead."
+        content.body = error
         content.sound = nil
         content.userInfo = [UserInfoKey.kind: Kind.aiProcessingFallback]
 
@@ -196,7 +201,7 @@ enum NotificationService {
 
     private static func deliverCommandModeFailure(error: String, using center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
-        content.title = "Command Mode needs setup"
+        content.title = "Command mode needs setup"
         content.body = error
         content.sound = nil
         content.userInfo = [UserInfoKey.kind: Kind.commandModeFailure]

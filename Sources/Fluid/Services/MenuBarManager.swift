@@ -35,7 +35,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     /// When recording stops, ASRService flips `isRunning` to false, which would normally hide the
     /// overlay. During post-processing we want the overlay to stay visible until processing ends.
     private var isProcessingActive: Bool = false {
-        didSet { self.updateNotchHUDSuppression() }
+        didSet {
+            self.updateNotchHUDSuppression()
+            // The menu-bar mark and the menu's status row both read this, so a
+            // refining pass has to repaint them the way recording does.
+            guard oldValue != self.isProcessingActive else { return }
+            self.updateMenuBarIcon()
+            self.updateMenu()
+        }
     }
 
     /// The persistent notch task HUD must yield the notch to the recording
@@ -453,8 +460,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         // Ensure we're not already set up
         guard !self.isSetup else { return }
 
-        // Create status item with error handling
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Variable length, not square: the recording and refining marks are the
+        // tile PLUS a trailing glyph, so the item has to be allowed to grow.
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         guard let statusItem = statusItem else {
             throw NSError(domain: "MenuBarManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create status item"])
@@ -472,14 +480,20 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.updateMenu()
     }
 
+    /// What the status item is currently saying. Recording wins over refining
+    /// because capture is the state the user can still act on.
+    private var menuBarIconState: MenuBarIconGenerator.State {
+        if self.isRecording { return .recording }
+        if self.isProcessingActive { return .refining }
+        return .idle
+    }
+
     private func updateMenuBarIcon() {
         guard let statusItem = statusItem else { return }
 
-        // Use MenuBarIcon asset - vectorized from logo
-        if let image = NSImage(named: "MenuBarIcon") {
-            image.isTemplate = true // Adapts to light/dark mode and tints red when recording
-            statusItem.button?.image = image
-        }
+        // Drawn, not shipped as a PNG: the mark changes SHAPE per state, and a
+        // template image has no colour of its own to change instead.
+        statusItem.button?.image = MenuBarIconGenerator.image(for: self.menuBarIconState)
     }
 
     private func buildMenuStructure() {
@@ -495,7 +509,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
 
         let copyLastTranscriptItem = NSMenuItem(
-            title: "Copy Last Transcript",
+            title: "Copy last transcript",
             action: #selector(copyLastTranscript(_:)),
             keyEquivalent: ""
         )
@@ -506,18 +520,18 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         // Open Main Window
-        let openItem = NSMenuItem(title: "Open Fluid Voice", action: #selector(openMainWindow), keyEquivalent: "")
+        let openItem = NSMenuItem(title: "Open Basics Voice", action: #selector(openMainWindow), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
 
         // Preferences
-        let preferencesItem = NSMenuItem(title: "Settings...", action: #selector(openPreferences), keyEquivalent: ",")
+        let preferencesItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         preferencesItem.keyEquivalentModifierMask = [.command]
         menu.addItem(preferencesItem)
 
         let customDictionaryItem = NSMenuItem(
-            title: "Custom Dictionary",
+            title: "Dictionary",
             action: #selector(openCustomDictionary),
             keyEquivalent: ""
         )
@@ -533,7 +547,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
         // Check for Updates
         let updateItem = NSMenuItem(
-            title: "Check for Updates...",
+            title: "Check for updates…",
             action: #selector(checkForUpdates(_:)),
             keyEquivalent: ""
         )
@@ -543,7 +557,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let rollbackMenuItem = NSMenuItem(
-            title: "Rollback to Previous Version...",
+            title: "Roll back to previous version…",
             action: #selector(rollbackToPreviousVersion(_:)),
             keyEquivalent: ""
         )
@@ -556,7 +570,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
         // Quit
         let quitItem = NSMenuItem(
-            title: "Quit Fluid Voice",
+            title: "Quit Basics Voice",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -578,11 +592,18 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     }
 
     private func updateMenuItemsText() {
-        // Update status text with hotkey info
+        // Status, then the shortcut on the same line behind a middot. Three
+        // states, matching the three menu-bar marks.
+        let stateLabel: String
+        switch self.menuBarIconState {
+        case .idle: stateLabel = "Ready to record"
+        case .recording: stateLabel = "Recording"
+        case .refining: stateLabel = "Refining"
+        }
         let hotkeyDisplay = SettingsStore.shared.primaryDictationShortcutDisplayString
-        let hotkeyInfo = hotkeyDisplay.isEmpty ? "" : " (\(hotkeyDisplay))"
-        let statusTitle = self.isRecording ? "Recording...\(hotkeyInfo)" : "Ready to Record\(hotkeyInfo)"
-        self.statusMenuItem?.title = statusTitle
+        self.statusMenuItem?.title = hotkeyDisplay.isEmpty
+            ? stateLabel
+            : "\(stateLabel) · \(hotkeyDisplay)"
         self.copyLastTranscriptMenuItem?.isEnabled = self.canCopyLastTranscript
         self.microphoneMenuItem?.isEnabled = true
 
@@ -601,7 +622,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         guard let submenu = self.microphoneSubmenu else { return }
 
         submenu.removeAllItems()
-        let loadingItem = NSMenuItem(title: "Loading...", action: nil, keyEquivalent: "")
+        // One faint row rather than an empty menu, so the submenu never renders
+        // at zero height while devices are being enumerated.
+        let loadingItem = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
         loadingItem.isEnabled = false
         submenu.addItem(loadingItem)
 
@@ -632,7 +655,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
 
         let followSystemItem = NSMenuItem(
-            title: "Use macOS Default Microphone",
+            title: "Use macOS default microphone",
             action: #selector(toggleMicrophoneSelectionMode(_:)),
             keyEquivalent: ""
         )
@@ -645,9 +668,13 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         let currentUID = self.currentPreferredInputUID(defaultInputUID: defaultInputUID)
 
         for device in inputDevices {
-            let isSystemDefault = device.uid == defaultInputUID
-            let title = isSystemDefault ? "\(device.name) (System Default)" : device.name
-            let item = NSMenuItem(title: title, action: #selector(selectMicrophone(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: device.name, action: #selector(selectMicrophone(_:)), keyEquivalent: "")
+            // The system-default device keeps its label, but as a quiet tag on
+            // the trailing lane instead of a "(System Default)" suffix that
+            // pushed long device names off the panel.
+            if device.uid == defaultInputUID {
+                item.attributedTitle = Self.deviceTitle(device.name, taggedWith: "SYSTEM")
+            }
             item.target = self
             item.representedObject = device.uid
             item.state = device.uid == currentUID ? .on : .off
@@ -661,6 +688,31 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             recordingItem.isEnabled = false
             submenu.addItem(recordingItem)
         }
+    }
+
+    /// A device row with a right-aligned micro tag. The tab stop is what puts
+    /// every tag in one lane no matter how long the device names are.
+    private static func deviceTitle(_ name: String, taggedWith tag: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 220)]
+
+        let title = NSMutableAttributedString(
+            string: name,
+            attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .paragraphStyle: paragraph,
+            ]
+        )
+        title.append(NSAttributedString(
+            string: "\t\(tag)",
+            attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .kern: 0.8,
+                .paragraphStyle: paragraph,
+            ]
+        ))
+        return title
     }
 
     private func currentPreferredInputUID(defaultInputUID: String?) -> String? {
@@ -745,74 +797,45 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
                     repo: "Fluid-oss",
                     includePrerelease: SettingsStore.shared.betaReleasesEnabled
                 )
-                let ok = NSAlert()
-                ok.messageText = "Update Found!"
-                ok.informativeText = "A new version is available and will be installed now."
-                ok.alertStyle = .informational
-                ok.addButton(withTitle: "OK")
-                ok.runModal()
+                ChromeAlerts.updateAvailable().runModal()
             } catch {
-                let msg = NSAlert()
                 if let pmkError = error as? PMKError, pmkError.isCancelled {
-                    let isBeta = SettingsStore.shared.betaReleasesEnabled
-                    msg.messageText = isBeta ? "You’re Up To Date (Beta)" : "You’re Up To Date"
-                    msg.informativeText = isBeta
-                        ? "You're already running the latest build available in the beta channel."
-                        : "You're already running the latest version of FluidVoice."
+                    ChromeAlerts.upToDate(isBeta: SettingsStore.shared.betaReleasesEnabled).runModal()
                 } else {
-                    msg.messageText = "Update Check Failed"
-                    msg.informativeText = "Unable to check for updates. Please try again later.\n\nError: \(error.localizedDescription)"
+                    ChromeAlerts.updateCheckFailed(error).runModal()
                 }
-                msg.alertStyle = .informational
-                msg.runModal()
             }
         }
     }
 
     @objc private func rollbackToPreviousVersion(_ sender: Any?) {
         let availableVersion = SimpleUpdater.shared.latestRollbackVersion() ?? ""
+        // The build being left behind — named in the success panel so "report a
+        // bug" has something concrete to be about.
+        let versionRolledBackFrom = ChromeAlerts.currentVersion
+
         guard !availableVersion.isEmpty else {
-            let msg = NSAlert()
-            msg.messageText = "No rollback backup found"
-            msg.informativeText = "No previous version backup is available on this device."
-            msg.alertStyle = .informational
-            msg.addButton(withTitle: "Get Previous Builds")
-            msg.addButton(withTitle: "Cancel")
-            if msg.runModal() == .alertFirstButtonReturn {
+            if ChromeAlerts.noRollbackBackup().runModal() == .alertFirstButtonReturn {
                 self.openPreviousBuildPicker()
             }
             return
         }
 
-        let confirm = NSAlert()
-        confirm.messageText = "Rollback to \(availableVersion)?"
-        confirm.informativeText = "This will restore the backup and relaunch FluidVoice."
-        confirm.alertStyle = .warning
-        confirm.addButton(withTitle: "Rollback")
-        confirm.addButton(withTitle: "Cancel")
-
-        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        guard ChromeAlerts.confirmRollback(to: availableVersion).runModal() == .alertFirstButtonReturn
+        else { return }
 
         Task { @MainActor in
             do {
                 try await SimpleUpdater.shared.rollbackToLatestBackup()
-                let success = NSAlert()
-                success.messageText = "Rollback Successful"
-                success.informativeText = "Rolled back to \(availableVersion). FluidVoice will relaunch shortly."
-                success.alertStyle = .informational
-                success.addButton(withTitle: "Report Bug")
-                success.addButton(withTitle: "OK")
-                let response = success.runModal()
-                if response == .alertFirstButtonReturn {
+                let success = ChromeAlerts.rollbackSucceeded(
+                    to: availableVersion,
+                    from: versionRolledBackFrom
+                )
+                if success.runModal() == .alertFirstButtonReturn {
                     self.openIssueReportingPage()
                 }
             } catch {
-                let fail = NSAlert()
-                fail.messageText = "Rollback Failed"
-                fail.informativeText = error.localizedDescription
-                fail.alertStyle = .critical
-                fail.addButton(withTitle: "OK")
-                fail.runModal()
+                ChromeAlerts.rollbackFailed(error, currentVersion: versionRolledBackFrom).runModal()
             }
         }
     }
@@ -844,16 +867,13 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             return
         }
 
-        let picker = NSAlert()
-        picker.messageText = "Download Previous Build"
-        picker.informativeText = "Choose one of the latest release builds to install manually."
-        picker.alertStyle = .informational
+        let picker = ChromeAlerts.previousBuildPicker()
 
         for option in options {
             picker.addButton(withTitle: option.version)
         }
-        picker.addButton(withTitle: "All Releases")
-        picker.addButton(withTitle: "Cancel")
+        picker.addButton(withTitle: ChromeAlerts.allReleasesButton)
+        picker.addButton(withTitle: ChromeAlerts.cancelButton)
 
         let response = picker.runModal()
         let first = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
@@ -1020,5 +1040,175 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
         window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
+    }
+}
+
+// MARK: - Alert copy
+
+/// Every modal panel the app raises outside its own window, in ONE string table.
+///
+/// macOS draws the box; these four rules decide what goes in it (Paper board
+/// `19 — Chrome`, section `S5 · Alert copy`):
+///
+/// 1. The first line is the OUTCOME, not the event.
+/// 2. The informative text says what happens NEXT.
+/// 3. Buttons are verbs, and the safe one is the default (index 0).
+/// 4. A raw error goes on its own last line, after a blank line.
+///
+/// Both update paths read from here — `MenuBarManager`'s own fallback check and
+/// `AppDelegate.checkForUpdatesManually()` — so the two can no longer disagree
+/// about what the app is called or whether it is up to date.
+enum ChromeAlerts {
+
+    /// The product name as it is spoken everywhere else in the UI. The bundle's
+    /// display name is still the upstream `FluidVoice`, so it cannot be used.
+    static let productName = "Basics Voice"
+
+    /// The build the user is running right now.
+    static var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+    }
+
+    /// Title + informative text + buttons, assembled the same way every time.
+    /// Button 0 is the default and, by rule 2, the safe one wherever the choice
+    /// is destructive.
+    private static func alert(
+        _ title: String,
+        _ message: String,
+        style: NSAlert.Style = .informational,
+        buttons: [String] = ["OK"]
+    ) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = style
+        for button in buttons {
+            alert.addButton(withTitle: button)
+        }
+        return alert
+    }
+
+    /// Rule 4: the raw error is diagnostic, so it survives verbatim — but it
+    /// sits under a plain-English line rather than replacing one.
+    private static func withRawError(_ message: String, _ error: Error) -> String {
+        "\(message)\n\n\(error.localizedDescription)"
+    }
+
+    // MARK: Updates
+
+    /// 01 — the check found a newer build and the install has already started.
+    /// The version is deliberately absent: `checkAndUpdate` does not report
+    /// which build it picked, and an invented number would be worse than none.
+    static func updateAvailable() -> NSAlert {
+        self.alert(
+            "Update available",
+            "The new build is downloading now and installs itself. "
+                + "\(self.productName) relaunches when it finishes."
+        )
+    }
+
+    /// 02 / 03 — nothing newer, on whichever channel the user is on.
+    static func upToDate(isBeta: Bool) -> NSAlert {
+        self.alert(
+            isBeta ? "You’re up to date on beta" : "You’re up to date",
+            isBeta
+                ? "\(self.productName) \(self.currentVersion) is the newest build in the beta channel."
+                : "\(self.productName) \(self.currentVersion) is the newest stable build."
+        )
+    }
+
+    /// 04 — the check itself could not run, so nothing is known either way.
+    static func updateCheckFailed(_ error: Error) -> NSAlert {
+        self.alert(
+            "Update check failed",
+            self.withRawError(
+                "\(self.productName) couldn’t reach the release server, so it doesn’t know "
+                    + "whether a newer build exists. Try again later.",
+                error
+            )
+        )
+    }
+
+    /// 11 — the background check found a build and the snooze has expired.
+    static func updateFound(version: String) -> NSAlert {
+        self.alert(
+            "\(self.productName) \(version) is available",
+            "Install it now and the app relaunches on its own. Later means we ask again tomorrow.",
+            buttons: ["Install now", "Later"]
+        )
+    }
+
+    // MARK: Rollback
+
+    /// 05 — nothing was ever kept on this machine.
+    static func noRollbackBackup() -> NSAlert {
+        self.alert(
+            "No backup to roll back to",
+            "This Mac has never kept a previous build of \(self.productName). "
+                + "You can download an older release from GitHub instead.",
+            buttons: ["Get previous builds", "Cancel"]
+        )
+    }
+
+    /// 06 — the destructive confirmation. Cancel is not the default because the
+    /// user asked for this explicitly, but the panel says exactly what survives.
+    static func confirmRollback(to version: String) -> NSAlert {
+        self.alert(
+            "Roll back to \(version)?",
+            "\(self.productName) restores the backed-up build and relaunches. "
+                + "Your settings, dictionary and history stay as they are.",
+            style: .warning,
+            buttons: ["Roll back", "Cancel"]
+        )
+    }
+
+    /// 07 — done. Button 0 still opens the issue page, as it always did.
+    static func rollbackSucceeded(to version: String, from previousVersion: String) -> NSAlert {
+        self.alert(
+            "Rolled back to \(version)",
+            "\(self.productName) relaunches in a moment. If \(previousVersion) broke something "
+                + "for you, say what — it goes straight to the issue tracker.",
+            buttons: ["Report a bug", "Done"]
+        )
+    }
+
+    /// 08 — the restore threw. Rule 4 again: reassurance first, raw error last.
+    static func rollbackFailed(_ error: Error, currentVersion: String) -> NSAlert {
+        self.alert(
+            "Roll back failed",
+            self.withRawError(
+                "The backup couldn’t be restored, so \(self.productName) is still on "
+                    + "\(currentVersion). Nothing was removed.",
+                error
+            ),
+            style: .critical
+        )
+    }
+
+    /// 09 — the manual download picker. It ships with NO buttons: the caller
+    /// appends one per real release, then `allReleasesButton` and
+    /// `cancelButton`, so the index arithmetic on the response still holds.
+    static func previousBuildPicker() -> NSAlert {
+        self.alert(
+            "Download an older build",
+            "Pick a release to download. Installing it is manual — "
+                + "drag the app into Applications yourself.",
+            buttons: []
+        )
+    }
+
+    static let allReleasesButton = "All releases"
+    static let cancelButton = "Cancel"
+
+    // MARK: Local model
+
+    /// 10 — the one-time offer to move onto the faster local model.
+    static func fasterModelOffer() -> NSAlert {
+        self.alert(
+            "Fluid-1 runs 2.2× faster now",
+            "A 3.77 GB build of Fluid-1 is ready for Apple silicon. Your current model "
+                + "keeps working until the new one finishes verifying.",
+            buttons: ["Download it", "Keep current model"]
+        )
     }
 }

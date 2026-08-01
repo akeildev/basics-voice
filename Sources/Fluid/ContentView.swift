@@ -73,6 +73,10 @@ private final class DictationAIStreamPreviewBuffer {
 
 // MARK: - Sidebar Item Enum
 
+/// Sidebar destinations. The case names are the ORIGINAL ones on purpose — the
+/// redesign renamed the visible labels only (`.welcome` → "Home",
+/// `.meetingTools` → "Meeting transcription", `.preferences` → "Preferences"),
+/// so persisted selections, notifications and router destinations keep working.
 enum SidebarItem: Hashable {
     case welcome
     case voiceEngine
@@ -86,6 +90,8 @@ enum SidebarItem: Hashable {
     case feedback
     case commandMode
     case rewriteMode
+    case sendToInstinct
+    case tasks
 }
 
 enum PrimaryDictationShortcutEdit: Hashable {
@@ -634,8 +640,10 @@ struct ContentView: View {
         }
 
         if self.selectedSidebarItem == nil {
-            let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            // Home is the dashboard now, so it is the landing page in both
+            // states — the old split sent onboarded users to Preferences
+            // because "Getting Started" was only a setup checklist.
+            self.selectedSidebarItem = .welcome
         }
         self.handlePendingAppNavigation()
 
@@ -1247,54 +1255,64 @@ struct ContentView: View {
     }
 
     private func openIssueReportingPage() {
-        guard let url = URL(string: "https://github.com/altic-dev/Fluid-oss/issues/new/choose") else { return }
+        guard let url = URL(string: "https://github.com/akeildev/basics-voice/issues") else { return }
         NSWorkspace.shared.open(url)
     }
 
+    /// Boards `01 — Home` … `14 — Tasks` § sidebar: four groups, fourteen items,
+    /// sentence case throughout. The group order is the order of the day —
+    /// dictation, then the modes that change what dictation does, then the
+    /// things it produced, then the app itself.
     private var sidebarView: some View {
         List(selection: self.$selectedSidebarItem) {
             Section {
-                self.sidebarNavigationLink(.preferences, title: "Settings", systemImage: "gearshape.fill")
-                self.sidebarNavigationLink(.voiceEngine, title: "Voice Engine", systemImage: "waveform")
-                self.sidebarNavigationLink(.aiEnhancements, title: "AI Enhancement", systemImage: "brain")
-                self.sidebarNavigationLink(.customDictionary, title: "Custom Dictionary", systemImage: "text.book.closed.fill")
+                self.sidebarNavigationLink(.welcome, title: "Home", systemImage: "house")
+                self.sidebarNavigationLink(.voiceEngine, title: "Voice engine", systemImage: "waveform")
+                self.sidebarNavigationLink(.aiEnhancements, title: "AI enhancements", systemImage: "sparkles")
             } header: {
-                self.sidebarSectionHeader("Configure")
+                self.sidebarSectionHeader("Dictation")
             }
 
             Section {
-                self.sidebarNavigationLink(.commandMode, title: "Command Mode", systemImage: "terminal.fill")
-                self.sidebarNavigationLink(.meetingTools, title: "File Transcription", systemImage: "doc.text.fill")
+                self.sidebarNavigationLink(.commandMode, title: "Command mode", systemImage: "command")
+                self.sidebarNavigationLink(.rewriteMode, title: "Rewrite mode", systemImage: "pencil")
+                self.sidebarNavigationLink(.sendToInstinct, title: "Send to Instinct", systemImage: "paperplane")
+                self.sidebarNavigationLink(.tasks, title: "Tasks", systemImage: "checklist")
             } header: {
-                self.sidebarSectionHeader("Use")
+                self.sidebarSectionHeader("Modes")
             }
 
             Section {
-                self.sidebarNavigationLink(.history, title: "History", systemImage: "clock.arrow.circlepath")
-                self.sidebarNavigationLink(.stats, title: "Stats", systemImage: "chart.bar.fill")
+                self.sidebarNavigationLink(.customDictionary, title: "Dictionary", systemImage: "book")
+                self.sidebarNavigationLink(.meetingTools, title: "Meeting transcription", systemImage: "mic")
+                self.sidebarNavigationLink(.history, title: "History", systemImage: "clock")
+                self.sidebarNavigationLink(.stats, title: "Stats", systemImage: "chart.bar")
             } header: {
-                self.sidebarSectionHeader("Activity")
+                self.sidebarSectionHeader("Library")
             }
 
             Section {
-                self.sidebarNavigationLink(.welcome, title: "Getting Started", systemImage: "house.fill")
-                self.sidebarNavigationLink(.changelog, title: "Change logs", systemImage: "doc.text.magnifyingglass")
-                self.sidebarNavigationLink(.feedback, title: "Feedback", systemImage: "envelope.fill")
+                self.sidebarNavigationLink(.preferences, title: "Preferences", systemImage: "slider.horizontal.3")
+                self.sidebarNavigationLink(.changelog, title: "Changelog", systemImage: "arrow.triangle.branch")
+                self.sidebarNavigationLink(.feedback, title: "Feedback", systemImage: "bubble.left")
             } header: {
-                self.sidebarSectionHeader("Help")
+                self.sidebarSectionHeader("App")
             }
         }
         .listStyle(.sidebar)
         .animation(nil, value: self.selectedSidebarItem)
-        .navigationTitle("FluidVoice")
+        .navigationTitle(Bundle.main.fluidAppDisplayName)
         .tint(self.theme.palette.accent)
     }
 
+    /// Board § sidebar group label: uppercase micro-label, +8% tracking.
+    /// `.textCase(nil)` first so the List's own upper-casing does not fight the
+    /// modifier's, then `basicsMicroLabel` applies the Basics treatment.
     private func sidebarSectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(self.theme.typography.sidebarSection)
-            .foregroundStyle(.secondary)
             .textCase(nil)
+            .basicsMicroLabel(11)
+            .foregroundStyle(self.theme.palette.tertiaryText)
             .padding(.top, self.theme.metrics.spacing.sm)
             .padding(.bottom, self.theme.metrics.spacing.xs)
     }
@@ -1347,7 +1365,7 @@ struct ContentView: View {
     private var detailContent: AnyView {
         switch self.selectedSidebarItem ?? .welcome {
         case .welcome:
-            return AnyView(self.welcomeView)
+            return AnyView(self.homeView)
         case .voiceEngine:
             return AnyView(VoiceEngineSettingsScreen(
                 appServices: self.appServices,
@@ -1376,6 +1394,10 @@ struct ContentView: View {
             return AnyView(self.commandModeView)
         case .rewriteMode:
             return AnyView(self.rewriteModeView)
+        case .sendToInstinct:
+            return AnyView(self.sendToInstinctView)
+        case .tasks:
+            return AnyView(self.tasksView)
         case .history:
             return AnyView(TranscriptionHistoryView())
         }
@@ -1412,53 +1434,46 @@ struct ContentView: View {
         .environmentObject(self.appServices)
     }
 
-    // MARK: - Welcome Guide
+    // MARK: - Home
 
-    private var welcomeView: some View {
-        WelcomeView(
+    /// Board `01 — Home`. Replaces the old "Getting Started" page; the sidebar
+    /// case is still `.welcome` so persisted selections keep resolving.
+    private var homeView: some View {
+        HomeView(
             selectedSidebarItem: self.$selectedSidebarItem,
             playgroundUsed: self.$playgroundUsed,
             isTranscriptionFocused: self.$isTranscriptionFocused,
             accessibilityEnabled: self.accessibilityEnabled,
             stopAndProcessTranscription: { await self.stopAndProcessTranscription() },
             startRecording: self.startRecording,
-            openAccessibilitySettings: self.openAccessibilitySettings,
-            restartApp: self.restartApp
+            openAccessibilitySettings: self.openAccessibilitySettings
         )
     }
 
-    // MARK: - Microphone Permission View (Kept inline for RecordingView)
+    // MARK: - Modes
 
-    private var microphonePermissionView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                // Status indicator
-                Circle()
-                    .fill(self.asr.micStatus == .authorized ? self.theme.palette.success : self.theme.palette.warning)
-                    .frame(width: 10, height: 10)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(self.labelFor(status: self.asr.micStatus))
-                        .fontWeight(.medium)
-                        .foregroundStyle(self.asr.micStatus == .authorized ? self.theme.palette.primaryText : self.theme.palette.warning)
-
-                    if self.asr.micStatus != .authorized {
-                        Text("Microphone access is required for voice recording")
-                            .font(self.theme.typography.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-
-                self.microphoneActionButton
-            }
-
-            // Step-by-step instructions when microphone is not authorized
-            if self.asr.micStatus != .authorized {
-                self.microphoneInstructionsView
-            }
-        }
+    /// Board `03 — Send to Instinct`. The shortcut bindings are the same ones
+    /// Preferences edits, and capture runs through this view's NSEvent monitor.
+    private var sendToInstinctView: some View {
+        InstinctSettingsView(
+            shortcut: self.$pokeHotkeyShortcut,
+            shortcutEnabled: self.$isPokeShortcutEnabled,
+            activeShortcutRecordingTarget: self.$activeShortcutRecordingTarget,
+            shortcutRecordingMessage: self.$shortcutRecordingMessage
+        )
     }
+
+    /// Boards `14 — Tasks` / `14b — Tasks · states`.
+    private var tasksView: some View {
+        TasksSettingsView(
+            shortcut: self.$taskHotkeyShortcut,
+            shortcutEnabled: self.$isTaskShortcutEnabled,
+            activeShortcutRecordingTarget: self.$activeShortcutRecordingTarget,
+            shortcutRecordingMessage: self.$shortcutRecordingMessage
+        )
+    }
+
+    // MARK: - Window sizing
 
     private var windowSizing: FluidWindowSizing {
         let window = self.theme.metrics.window
@@ -1466,78 +1481,6 @@ struct ContentView: View {
             return .minimum(width: window.onboardingMinWidth, height: window.onboardingMinHeight)
         }
         return .minimum(width: window.mainMinWidth, height: window.mainMinHeight)
-    }
-
-    private var microphoneActionButton: some View {
-        Group {
-            if self.asr.micStatus == .notDetermined {
-                Button {
-                    self.asr.requestMicAccess()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "mic.fill")
-                        Text("Grant Access")
-                            .fontWeight(.medium)
-                    }
-                }
-                .buttonStyle(GlassButtonStyle())
-                .buttonHoverEffect()
-            } else if self.asr.micStatus == .denied {
-                Button {
-                    self.asr.openSystemSettingsForMic()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "gear")
-                        Text("Open Settings")
-                            .fontWeight(.medium)
-                    }
-                }
-                .buttonStyle(GlassButtonStyle())
-                .buttonHoverEffect()
-            }
-        }
-    }
-
-    private var microphoneInstructionsView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundStyle(self.theme.palette.accent)
-                    .font(self.theme.typography.caption)
-                Text("How to enable microphone access:")
-                    .font(self.theme.typography.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if self.asr.micStatus == .notDetermined {
-                    self.instructionStep(number: "1", text: "Click **Grant Access** above")
-                    self.instructionStep(number: "2", text: "Choose **Allow** in the system dialog")
-                } else if self.asr.micStatus == .denied {
-                    self.instructionStep(number: "1", text: "Click **Open Settings** above")
-                    self.instructionStep(number: "2", text: "Find **FluidVoice** in the microphone list")
-                    self.instructionStep(number: "3", text: "Toggle **FluidVoice ON** to allow access")
-                }
-            }
-            .padding(.leading, 4)
-        }
-        .padding(12)
-        .background(self.theme.palette.accent.opacity(0.12))
-        .cornerRadius(8)
-    }
-
-    private func instructionStep(number: String, text: String) -> some View {
-        HStack(spacing: 8) {
-            Text(number + ".")
-                .font(self.theme.typography.captionSmall)
-                .foregroundStyle(self.theme.palette.accent)
-                .fontWeight(.semibold)
-                .frame(width: 16)
-            Text(text)
-                .font(self.theme.typography.caption)
-                .foregroundStyle(.primary)
-        }
     }
 
     // MARK: - Preferences View
@@ -1591,15 +1534,19 @@ struct ContentView: View {
 
     private var commandModeView: some View {
         CommandModeView(service: self.commandModeService, onClose: {
-            let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            // Home is the dashboard now, so it is the landing page in both
+            // states — the old split sent onboarded users to Preferences
+            // because "Getting Started" was only a setup checklist.
+            self.selectedSidebarItem = .welcome
         })
     }
 
     private var rewriteModeView: some View {
         RewriteModeView(service: self.rewriteModeService, onClose: {
-            let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            // Home is the dashboard now, so it is the landing page in both
+            // states — the old split sent onboarded users to Preferences
+            // because "Getting Started" was only a setup checklist.
+            self.selectedSidebarItem = .welcome
         })
     }
 
@@ -3770,8 +3717,10 @@ struct ContentView: View {
 
         if self.selectedSidebarItem == .rewriteMode {
             DebugLogger.shared.debug("Cancel shortcut: closing mode view", source: "ContentView")
-            let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            // Home is the dashboard now, so it is the landing page in both
+            // states — the old split sent onboarded users to Preferences
+            // because "Getting Started" was only a setup checklist.
+            self.selectedSidebarItem = .welcome
             handled = true
         }
 
@@ -4099,8 +4048,7 @@ extension ContentView {
     private func completeOnboarding(selecting target: SidebarItem? = nil) {
         self.settings.onboardingCompleted = true
 
-        let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-        self.selectedSidebarItem = target ?? (isOnboarded ? .preferences : .welcome)
+        self.selectedSidebarItem = target ?? .welcome
     }
 
     private func missingOnboardingCompletionRequirements(allowsAIConfiguration: Bool = false) -> [String] {
@@ -4136,16 +4084,6 @@ extension ContentView {
         self.asr.showError = true
     }
 
-    func labelFor(status: AVAuthorizationStatus) -> String {
-        switch status {
-        case .authorized: return "Microphone: Authorized"
-        case .denied: return "Microphone: Denied"
-        case .restricted: return "Microphone: Restricted"
-        case .notDetermined: return "Microphone: Not Determined"
-        @unknown default: return "Microphone: Unknown"
-        }
-    }
-
     func checkAccessibilityPermissions() -> Bool {
         return AXIsProcessTrusted()
     }
@@ -4177,7 +4115,7 @@ extension ContentView {
     private func positionWindowBesideSystemSettings(requestID: UUID) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
             guard self.accessibilityGuideRequestID == requestID else { return }
-            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.title == "FluidVoice" }) ?? NSApp.keyWindow else {
+            guard let window = NSApp.windows.first(where: { $0.isVisible && $0.title == Bundle.main.fluidAppDisplayName }) ?? NSApp.keyWindow else {
                 return
             }
 
@@ -4346,7 +4284,7 @@ extension ContentView {
     private func cancelAccessibilityPermissionFlow() {
         self.finishAccessibilityPermissionFlow()
         NSApp.activate(ignoringOtherApps: true)
-        (NSApp.windows.first { $0.isVisible && $0.title == "FluidVoice" } ?? NSApp.keyWindow)?
+        (NSApp.windows.first { $0.isVisible && $0.title == Bundle.main.fluidAppDisplayName } ?? NSApp.keyWindow)?
             .makeKeyAndOrderFront(nil)
     }
 
