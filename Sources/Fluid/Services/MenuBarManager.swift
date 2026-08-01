@@ -990,11 +990,12 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "FluidVoice"
+        window.title = Bundle.main.fluidAppDisplayName
         window.animationBehavior = .none
         window.minSize = self.mainWindowMinimumSize
         window.isReleasedWhenClosed = false
         window.contentViewController = hostingController
+        Self.applyBasicsChrome(to: window)
         window.setFrame(self.defaultWindowFrame(), display: false)
         self.bringToFront(window)
         self.hostedWindow = window
@@ -1004,6 +1005,20 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    /// The titlebar otherwise draws its own material, leaving a lighter band
+    /// across the top with a visible seam against the page. Make it transparent
+    /// and paint the window in the app ground so the chrome and the backdrop
+    /// are one plain colour.
+    static func applyBasicsChrome(to window: NSWindow) {
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(BasicsTokens.Surface.bg)
+        window.isOpaque = true
+        // The window title otherwise prints across the top of the content and
+        // reads as a bar cutting over the sidebar. The sidebar names the app;
+        // the titlebar only needs to carry the traffic lights and the toolbar.
+        window.titleVisibility = .hidden
     }
 
     private func ensureUsableMainWindow(_ window: NSWindow) {

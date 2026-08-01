@@ -114,16 +114,13 @@ private extension ThemedCard {
 
             // Board: standard rest `0 1px 2px` + `0 8px 24px` at ink 4%;
             // hover `0 2px 3px` at 5% + `0 14px 34px` at 8%.
-            // Tone + shadow carry the card now — strokes are gone (Akeil:
-            // white-on-white, and no lines everywhere). Slightly stronger key
-            // shadow, tuned for the deeper #EEF1EF ground.
-            let restShadows = [
-                BasicsShadow(color: ink.opacity(0.05), radius: 1, y: 1),
-                BasicsShadow(color: ink.opacity(0.07), radius: 14, y: 8),
-            ]
+            // TONE carries the card — it is a tinted panel on a white page, not
+            // a white surface floating above a grey one, so it casts almost
+            // nothing. A shadow here would read as grime around the edge.
+            let restShadows: [BasicsShadow] = []
+            // Hover lifts by a hair only.
             let raisedShadows = [
-                BasicsShadow(color: ink.opacity(0.05), radius: 1.5, y: 2),
-                BasicsShadow(color: ink.opacity(0.08), radius: 17, y: 14),
+                BasicsShadow(color: ink.opacity(0.05), radius: 8, y: 4),
             ]
 
             switch style {

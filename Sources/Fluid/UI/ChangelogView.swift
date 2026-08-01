@@ -154,7 +154,7 @@ struct ChangelogView: View {
         .padding(.vertical, 64)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -220,7 +220,7 @@ struct ChangelogView: View {
         .padding(.vertical, 64)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)

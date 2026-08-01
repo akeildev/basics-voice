@@ -17,21 +17,24 @@ enum BasicsTokens {
     // MARK: - Surfaces
 
     enum Surface {
-        /// App ground — snow, a full step below the cards so white reads as
-        /// raised. Contrast in this app comes from TONE + SHADOW, not lines
-        /// (Akeil: cards were white-on-white and the app leaned on hairlines).
-        static let bg = Color(hex: "#EEF1EF")!
-        /// Raised surface. Pure white against the deeper ground.
-        static let card = Color.white
-        /// Sidebar ground — one step deeper again.
-        static let sidebar = Color(hex: "#E8ECEA")!
-        /// Inset wells on white cards.
-        static let muted = Color(hex: "#EAEEEB")!
-        /// Hairlines are a whisper now — tone does the separating. Kept only
-        /// where two same-tone regions genuinely touch.
-        static let border = Color.black.opacity(0.05)
-        /// Control outlines (fields, segmented) — still quiet.
-        static let borderStrong = Color.black.opacity(0.10)
+        /// The page is WHITE and plain — no lines drawn on it. Cards are the
+        /// DARKER element (Akeil: "the cards should be darker and the
+        /// background should be white"), which is the inverse of the usual
+        /// raised-white-card convention and is what makes blocks of content
+        /// read as blocks here.
+        static let bg = Color.white
+        /// A card — a tinted panel sitting ON the white page. Hue 157.6 held,
+        /// so the greys stay spruce rather than drifting blue.
+        static let card = Color(hex: "#EDF1EF")!
+        /// Sidebar — the same family, a touch deeper so the nav column settles
+        /// behind the content.
+        static let sidebar = Color(hex: "#EAEEEB")!
+        /// A well INSIDE a card: deeper again, so it reads as recessed.
+        static let muted = Color(hex: "#E7EAE8")!
+        /// NO LINES. Separation is tone and space throughout the app. These
+        /// stay as tokens so every call site resolves, but they draw nothing.
+        static let border = Color.clear
+        static let borderStrong = Color.clear
     }
 
     /// The card shadow pair — soft and diffuse, never a hard drop. Ambient +

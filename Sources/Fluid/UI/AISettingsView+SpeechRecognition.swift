@@ -87,7 +87,7 @@ extension VoiceEngineSettingsView {
                 }
                 .pickerStyle(.inline)
 
-                Divider()
+                Divider().hidden()
 
                 Toggle("English only", isOn: self.$viewModel.englishOnlyFilter)
                 Toggle("Downloaded only", isOn: self.$viewModel.installedOnlyFilter)

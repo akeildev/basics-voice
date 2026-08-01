@@ -365,7 +365,7 @@ struct WelcomeView: View {
                                 }
                             }
 
-                            Divider().opacity(0.2)
+                            Divider().hidden().opacity(0.2)
 
                             self.guideDisclosureRow(
                                 title: "Command Mode",
@@ -379,7 +379,7 @@ struct WelcomeView: View {
                                 self.commandModeGuide
                             }
 
-                            Divider().opacity(0.2)
+                            Divider().hidden().opacity(0.2)
 
                             self.guideDisclosureRow(
                                 title: "Edit Mode",

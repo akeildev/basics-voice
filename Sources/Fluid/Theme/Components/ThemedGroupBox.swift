@@ -29,7 +29,7 @@ struct ThemedGroupBox<Label: View, Content: View>: View {
                     .padding(.top, self.theme.metrics.spacing.md)
                     .padding(.horizontal, self.theme.metrics.spacing.md)
 
-                Divider()
+                Divider().hidden()
                     .background(self.theme.palette.separator)
                     .opacity(0.6)
                     .padding(.horizontal, self.theme.metrics.spacing.md)

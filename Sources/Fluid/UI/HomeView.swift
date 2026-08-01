@@ -238,7 +238,7 @@ struct HomeView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(self.theme.palette.contentBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(self.theme.palette.separator, lineWidth: 1)
@@ -255,13 +255,20 @@ struct HomeView: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 ForEach(Array(value.parts.enumerated()), id: \.offset) { index, part in
                     if index.isMultiple(of: 2) {
+                        // A stat numeral must never wrap — at the window's
+                        // compact width "12,765" was breaking into "12,76 / 5".
+                        // Shrink to fit instead of splitting the number.
                         Text(part)
                             .basicsLabel(34)
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundStyle(value.isBrand ? self.theme.palette.accent : self.theme.palette.primaryText)
                     } else {
                         Text(part)
                             .basicsLabel(14)
+                            .lineLimit(1)
                             .foregroundStyle(self.theme.palette.secondaryText)
                     }
                 }
@@ -477,7 +484,7 @@ struct HomeView: View {
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(self.theme.palette.contentBackground)
+                    .fill(self.theme.palette.cardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(self.theme.palette.separator, lineWidth: 1)
@@ -642,7 +649,7 @@ struct HomeView: View {
         .frame(width: 260, height: 34)
         .background(
             Capsule()
-                .fill(self.theme.palette.contentBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(Capsule().stroke(self.theme.palette.separator, lineWidth: 1))
         )
     }
@@ -779,7 +786,7 @@ struct HomeView: View {
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(self.theme.palette.contentBackground)
+                        .fill(self.theme.palette.cardBackground)
                         .overlay(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .stroke(self.theme.palette.separator, lineWidth: 1)

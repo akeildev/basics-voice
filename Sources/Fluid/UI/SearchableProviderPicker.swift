@@ -94,7 +94,7 @@ struct SearchableProviderPicker: View {
                 }
                 .searchablePickerSearchFieldChrome()
 
-                Divider()
+                Divider().hidden()
 
                 // Provider list
                 ScrollView {
@@ -118,7 +118,7 @@ struct SearchableProviderPicker: View {
                         let saved = self.filteredProviders.filter { !$0.isBuiltIn }
                         if !saved.isEmpty {
                             if !builtIns.isEmpty {
-                                Divider()
+                                Divider().hidden()
                                     .padding(.vertical, 4)
                             }
 

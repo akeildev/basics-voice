@@ -162,7 +162,7 @@ struct ModeShortcutHero<Trailing: View>: View {
         .padding(.horizontal, 28)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(self.theme.palette.contentBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(self.theme.palette.separator, lineWidth: 1)

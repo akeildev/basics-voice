@@ -448,7 +448,7 @@ extension AIEnhancementSettingsView {
                         }
                     }
 
-                    Divider()
+                    Divider().hidden()
 
                     Button("Choose app…") {
                         self.viewModel.addAppPromptBindingFromFilePicker(for: mode)
@@ -520,7 +520,7 @@ extension AIEnhancementSettingsView {
                 }
 
                 if !modeProfiles.isEmpty {
-                    Divider()
+                    Divider().hidden()
                     ForEach(modeProfiles) { profile in
                         Button(profile.name.isEmpty ? "Untitled Prompt" : profile.name) {
                             self.viewModel.setPromptID(profile.id, for: binding)
@@ -528,7 +528,7 @@ extension AIEnhancementSettingsView {
                     }
                 }
 
-                Divider()
+                Divider().hidden()
 
                 Button("Create new prompt…") {
                     self.viewModel.openNewPromptEditor(prefillMode: mode)

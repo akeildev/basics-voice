@@ -412,18 +412,18 @@ struct TranscriptionHistoryView: View {
         }
 
         if self.hasAudio(entry) {
-            Divider()
+            Divider().hidden()
             Button("Export pair...") { self.exportPair(entry) }
             Button("Reveal audio") { self.revealAudio(entry) }
         }
 
-        Divider()
+        Divider().hidden()
 
         Button("Report bad result...") {
             self.openFeedbackReport(for: entry)
         }
 
-        Divider()
+        Divider().hidden()
 
         Button("Delete", role: .destructive) {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -668,7 +668,7 @@ struct TranscriptionHistoryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -788,7 +788,7 @@ struct TranscriptionHistoryView: View {
             .fixedSize(horizontal: false, vertical: true)
             .background(
                 RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
-                    .fill(self.theme.palette.windowBackground)
+                    .fill(self.theme.palette.cardBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
@@ -1060,7 +1060,7 @@ private struct TranscriptionFeedbackReportSheet: View {
                 .frame(height: height)
                 .background(
                     RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
-                        .fill(self.theme.palette.windowBackground)
+                        .fill(self.theme.palette.cardBackground)
                         .overlay(
                             RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
                                 .stroke(self.theme.palette.cardBorder, lineWidth: 1)

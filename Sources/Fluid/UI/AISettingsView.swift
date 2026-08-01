@@ -216,12 +216,9 @@ struct AIEmptyWell<Content: View>: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 26)
         .padding(.horizontal, AISettingsLayout.cardGutter)
-        .background(
-            shape.strokeBorder(
-                BasicsBorder.strong(self.theme, self.colorScheme),
-                style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-            )
-        )
+        // No dashed outline — an empty region reads as a well punched into the
+        // card, defined by tone rather than by a line.
+        .background(shape.fill(BasicsTokens.Surface.muted))
     }
 }
 

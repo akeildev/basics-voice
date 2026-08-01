@@ -131,7 +131,7 @@ struct FeedbackView: View {
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
-                    .fill(self.theme.palette.windowBackground)
+                    .fill(self.theme.palette.cardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
                             .stroke(

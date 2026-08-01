@@ -529,7 +529,7 @@ struct StatsView: View {
             .fixedSize(horizontal: false, vertical: true)
             .background(
                 RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
-                    .fill(self.theme.palette.windowBackground)
+                    .fill(self.theme.palette.cardBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)

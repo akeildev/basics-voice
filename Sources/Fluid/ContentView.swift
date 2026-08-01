@@ -1306,7 +1306,10 @@ struct ContentView: View {
         }
         .listStyle(.sidebar)
         .animation(nil, value: self.selectedSidebarItem)
-        .navigationTitle(Bundle.main.fluidAppDisplayName)
+        // No navigationTitle: it printed the app name across the top of the
+        // window, reading as a bar cutting over the sidebar. The window title
+        // is set on the NSWindow itself (for the Dock and Window menu) and the
+        // titlebar renders it hidden.
         .tint(self.theme.palette.accent)
     }
 

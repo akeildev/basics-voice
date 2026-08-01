@@ -2554,7 +2554,7 @@ private struct PrefMenuChrome: View {
         .frame(width: self.width, height: 32, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
@@ -2588,7 +2588,7 @@ private struct PrefStepper: View {
         .frame(height: 32)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -2697,7 +2697,7 @@ private struct PrefCard<Content: View>: View {
         .padding(self.padding)
         .background(
             RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: BasicsTokens.Radius.lg, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -2852,7 +2852,7 @@ private struct PrefInstructions: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
         )
     }
 }

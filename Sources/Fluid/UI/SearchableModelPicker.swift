@@ -113,7 +113,7 @@ struct SearchableModelPicker: View {
                     }
                     .searchablePickerSearchFieldChrome()
 
-                    Divider()
+                    Divider().hidden()
 
                     VStack(spacing: 0) {
                         if self.models.isEmpty {
@@ -174,7 +174,7 @@ struct SearchableModelPicker: View {
                             .frame(maxHeight: 250)
 
                             if self.filteredModels.count > 100 {
-                                Divider()
+                                Divider().hidden()
                                 Text("\(self.filteredModels.count - 100) more (use search)")
                                     .basicsProse(12)
                                     .foregroundStyle(self.theme.palette.tertiaryText)

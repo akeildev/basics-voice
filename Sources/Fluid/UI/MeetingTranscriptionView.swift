@@ -373,7 +373,7 @@ struct MeetingTranscriptionView: View {
         .padding(.vertical, 22)
         .background(
             RoundedRectangle(cornerRadius: Board.card, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: Board.card, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -503,7 +503,7 @@ struct MeetingTranscriptionView: View {
         .padding(.vertical, 22)
         .background(
             RoundedRectangle(cornerRadius: Board.card, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: Board.card, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -674,7 +674,7 @@ struct MeetingTranscriptionView: View {
         .padding(.vertical, 22)
         .background(
             RoundedRectangle(cornerRadius: Board.card, style: .continuous)
-                .fill(self.theme.palette.windowBackground)
+                .fill(self.theme.palette.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: Board.card, style: .continuous)
                         .stroke(self.theme.palette.cardBorder, lineWidth: 1)
@@ -903,7 +903,7 @@ struct MeetingTranscriptionView: View {
                         .frame(height: 38)
                         .background(
                             RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
-                                .fill(self.theme.palette.windowBackground)
+                                .fill(self.theme.palette.cardBackground)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: BasicsTokens.Radius.md, style: .continuous)
                                         .stroke(BasicsBorder.strong(self.theme, self.colorScheme), lineWidth: 1)
