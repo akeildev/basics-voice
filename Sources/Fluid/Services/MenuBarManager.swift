@@ -1015,11 +1015,22 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         if frame.height < minSize.height || frame.width < minSize.width {
             window.setFrame(self.defaultWindowFrame(), display: false)
         }
+
+        // Also walk back frames far LARGER than the default (a maximised
+        // carry-over, or a frame saved by an earlier build). A resize within
+        // reason is respected; a screen-filling one is not what this window is
+        // for.
+        let defaultSize = self.defaultWindowFrame().size
+        if frame.width > defaultSize.width * 1.5 || frame.height > defaultSize.height * 1.5 {
+            window.setFrame(self.defaultWindowFrame(), display: false)
+        }
     }
 
     private func defaultWindowFrame() -> NSRect {
-        // Center a sensible default frame on the main screen.
-        let size = NSSize(width: 1000, height: 700)
+        // Compact by design. This is a configure-and-glance window, not a
+        // workspace — the product is used through the overlays, so the window
+        // sizes like Willow and its peers rather than filling the screen.
+        let size = NSSize(width: 1040, height: 680)
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: size.width, height: size.height)
         let origin = NSPoint(
             x: screenFrame.midX - size.width / 2,

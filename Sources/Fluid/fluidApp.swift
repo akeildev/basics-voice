@@ -29,7 +29,11 @@ struct FluidApp: App {
                     .environmentObject(self.appServices)
             }
         }
-        .defaultSize(width: 1000, height: 700)
+        .defaultSize(width: 1040, height: 680)
+        // State restoration otherwise reopens whatever frame the window last
+        // had — including a screen-filling one from an older build. This is a
+        // configure-and-glance window; it always opens compact.
+        .restorationBehavior(.disabled)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") {

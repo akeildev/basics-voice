@@ -1264,7 +1264,12 @@ struct ContentView: View {
     /// dictation, then the modes that change what dictation does, then the
     /// things it produced, then the app itself.
     private var sidebarView: some View {
-        List(selection: self.$selectedSidebarItem) {
+        // No selection binding: with one, AppKit draws its own emphasized
+        // selection pill in the SYSTEM accent colour, on top of any
+        // listRowBackground — on a teal-accented Mac the row went teal. The
+        // rows below are plain buttons that set `selectedSidebarItem`
+        // themselves, so the only selection pill is the Basics one.
+        List {
             Section {
                 self.sidebarNavigationLink(.welcome, title: "Home", systemImage: "house")
                 self.sidebarNavigationLink(.voiceEngine, title: "Voice engine", systemImage: "waveform")
@@ -1323,18 +1328,24 @@ struct ContentView: View {
         // the app tint, so the selection is drawn here instead — the row
         // background replaces the system pill and stays Basics green on any Mac.
         let isSelected = self.selectedSidebarItem == item
-        return NavigationLink(value: item) {
+        return Button {
+            self.selectedSidebarItem = item
+        } label: {
             Label(title, systemImage: systemImage)
                 .font(self.theme.typography.sidebarItem)
                 .foregroundStyle(isSelected ? self.theme.palette.accent : self.theme.palette.primaryText)
-                .frame(minHeight: 24, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
                 .padding(.vertical, self.theme.metrics.spacing.xs / 2)
+                .padding(.horizontal, self.theme.metrics.spacing.sm)
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
+        .buttonStyle(.plain)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(isSelected ? BasicsTokens.Semantic.brandSoft : Color.clear)
                 .padding(.horizontal, 2)
         )
+        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
     }
 
     private var themePreferenceButton: some View {
