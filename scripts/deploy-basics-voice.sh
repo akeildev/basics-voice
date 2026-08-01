@@ -8,11 +8,14 @@
 #
 # Usage:
 #   scripts/deploy-basics-voice.sh             # build current source + (re)install
-#   scripts/deploy-basics-voice.sh --update    # git pull --rebase upstream first
+#   scripts/deploy-basics-voice.sh --check     # report how far behind upstream, install nothing
+#   scripts/deploy-basics-voice.sh --update    # rebase your work onto upstream, then build + install
 #
 # Environment overrides:
-#   BASICS_APP_NAME   App name to install as        (default: Basics Voice)
-#   BASICS_SIGN_ID    codesign identity to use      (default: first "Apple Development" in keychain)
+#   BASICS_APP_NAME         App name to install as    (default: Basics Voice)
+#   BASICS_SIGN_ID          codesign identity to use  (default: first "Apple Development" in keychain)
+#   BASICS_UPSTREAM_REMOTE  remote holding new releases (default: upstream)
+#   BASICS_UPSTREAM_BRANCH  branch on that remote       (default: main)
 #
 # Requirements: Xcode (full, not just CLT) and at least one Apple Development
 # signing certificate (a free Apple ID added in Xcode > Settings > Accounts works).
@@ -27,9 +30,74 @@ LOG="$REPO/.last-deploy.log"
 
 cd "$REPO"
 
+# Where new FluidVoice releases actually come from. This fork lives on `origin`
+# (your own copy); new upstream versions land on `upstream`. A bare
+# `git pull --rebase` is wrong here: on a feature branch with no tracking branch
+# it fails outright, and when it does work it pulls your own fork, not upstream.
+UPSTREAM_REMOTE="${BASICS_UPSTREAM_REMOTE:-upstream}"
+UPSTREAM_BRANCH="${BASICS_UPSTREAM_BRANCH:-main}"
+UPSTREAM_REF="$UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
+
+upstream_status() {
+  git remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1 || {
+    echo "!! No '$UPSTREAM_REMOTE' remote. Add it with:"
+    echo "   git remote add $UPSTREAM_REMOTE https://github.com/altic-dev/FluidVoice.git"
+    return 1
+  }
+  git fetch --quiet --tags "$UPSTREAM_REMOTE" || return 1
+  local behind ahead
+  behind=$(git rev-list --count "HEAD..$UPSTREAM_REF")
+  ahead=$(git rev-list --count "$UPSTREAM_REF..HEAD")
+  echo "    branch:   $(git rev-parse --abbrev-ref HEAD)"
+  echo "    upstream: $UPSTREAM_REF ($(git describe --tags --abbrev=0 "$UPSTREAM_REF" 2>/dev/null || echo 'no tag'))"
+  echo "    behind upstream by $behind commit(s); your own work: $ahead commit(s)"
+  return 0
+}
+
+if [[ "${1:-}" == "--check" ]]; then
+  echo "==> Update check"
+  upstream_status || exit 1
+  INSTALLED_VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+    "$DEST/Contents/Info.plist" 2>/dev/null || echo "not installed")
+  echo "    installed $APP_NAME: v${INSTALLED_VER}"
+  exit 0
+fi
+
 if [[ "${1:-}" == "--update" ]]; then
-  echo "==> Pulling upstream updates (git pull --rebase)..."
-  git pull --rebase
+  echo "==> Checking for upstream updates..."
+  upstream_status || exit 1
+
+  # Refuse to rebase over uncommitted work — a mid-rebase conflict on a dirty
+  # tree is how you lose changes.
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "!! Working tree is dirty. Commit or stash first, then re-run --update."
+    git status --short
+    exit 1
+  fi
+  if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+    echo "!! A rebase is already in progress. Finish it (git rebase --continue)"
+    echo "   or abandon it (git rebase --abort), then re-run."
+    exit 1
+  fi
+
+  if [ "$(git rev-list --count "HEAD..$UPSTREAM_REF")" -eq 0 ]; then
+    echo "    Already up to date with $UPSTREAM_REF — building current source."
+  else
+    BACKUP="backup/pre-update-$(date +%Y%m%d-%H%M%S)"
+    git branch "$BACKUP" >/dev/null
+    echo "==> Safety branch: $BACKUP (git reset --hard $BACKUP to undo)"
+    echo "==> Rebasing your commits onto $UPSTREAM_REF ..."
+    if ! git rebase "$UPSTREAM_REF"; then
+      echo ""
+      echo "!! Rebase hit a conflict. Nothing was installed; the app on disk still works."
+      echo "   Conflicted files:"
+      git diff --name-only --diff-filter=U | sed 's/^/     /'
+      echo "   Resolve them, then: git add <files> && git rebase --continue && $0"
+      echo "   Or back out entirely: git rebase --abort"
+      exit 1
+    fi
+    echo "    Rebase clean. Your work is now on top of $UPSTREAM_REF."
+  fi
 fi
 
 echo "==> Building ${APP_NAME} (Release, from FluidVoice source)..."
