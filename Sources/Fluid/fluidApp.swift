@@ -34,6 +34,7 @@ struct FluidApp: App {
             // PAINTED that band white and was one of the four surfaces fighting
             // over the top strip.
             .toolbarBackground(.hidden, for: .windowToolbar)
+            .background(HideWindowTitle())
         }
         // 720, not 680: onboarding's own minimum is 700, so the smaller default
         // made the window jump on first launch.
@@ -50,5 +51,30 @@ struct FluidApp: App {
                 .keyboardShortcut(",", modifiers: .command)
             }
         }
+    }
+}
+
+/// Hides the window's title TEXT without clearing the title STRING.
+///
+/// The string has to stay: `isMainWindow` in both `AppDelegate` and
+/// `MenuBarManager` identifies the main window by comparing `window.title` to
+/// the app's display name, and a window with no title fails that test — which
+/// is what makes "open from the menu bar" build a second main window.
+/// `.navigationTitle("")` would clear the string, so it is the wrong tool here.
+///
+/// Deliberately one line of effect, applied once. The thing this replaces was a
+/// notification observer that re-ran a view-controller tree walk and mutated
+/// `styleMask` on every window update in the app.
+private struct HideWindowTitle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            view.window?.titleVisibility = .hidden
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.window?.titleVisibility = .hidden
     }
 }

@@ -366,6 +366,11 @@ struct ContentView: View {
             .toolbar {
                 if !self.settings.shouldShowOnboarding {
                     ToolbarItemGroup(placement: .primaryAction) {
+                        // The title item used to hold the leading space open.
+                        // Without it `.primaryAction` collapses to the left of
+                        // the toolbar, so the group has to push itself right.
+                        Spacer()
+
                         self.todayStatsButton
 
                         self.themePreferenceButton
@@ -379,7 +384,11 @@ struct ContentView: View {
                 }
             }
             .toolbar(removing: .sidebarToggle)
-            .overlay(alignment: .center) {}
+            // The app name in the toolbar is SwiftUI's own title item, which is
+            // why hiding the NSWindow's `titleVisibility` does not touch it.
+            // The window's title STRING still has to exist — `isMainWindow`
+            // matches on it — so this removes the drawn item and nothing else.
+            .toolbar(removing: .title)
             .alert(
                 self.asr.errorTitle,
                 isPresented: Binding(

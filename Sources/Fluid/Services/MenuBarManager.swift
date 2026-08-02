@@ -994,7 +994,10 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             backing: .buffered,
             defer: false
         )
+        // The title string identifies this window to `isMainWindow` and names it
+        // in the Dock and Window menus; only the drawn text is hidden.
         window.title = Bundle.main.fluidAppDisplayName
+        window.titleVisibility = .hidden
         window.animationBehavior = .none
         window.minSize = self.mainWindowMinimumSize
         window.isReleasedWhenClosed = false
