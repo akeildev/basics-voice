@@ -1338,13 +1338,25 @@ struct ContentView: View {
         return Button {
             self.selectedSidebarItem = item
         } label: {
-            Label(title, systemImage: systemImage)
-                .font(self.theme.typography.sidebarItem)
-                .foregroundStyle(isSelected ? Color.white : self.theme.palette.primaryText)
-                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
-                .padding(.vertical, 3)
-                .padding(.horizontal, 8)
-                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            // An explicit icon + text rather than a `Label`: inside a sidebar
+            // list SwiftUI styles a Label's icon on its own, so a
+            // `foregroundStyle` on the Label reached the text and left the
+            // glyph dark on the selected row.
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    // A fixed slot, so the titles share a vertical lane whatever
+                    // width each glyph draws at.
+                    .frame(width: 18, alignment: .center)
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .font(self.theme.typography.sidebarItem)
+            .foregroundStyle(isSelected ? Color.white : self.theme.palette.primaryText)
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+            .padding(.vertical, 3)
+            .padding(.horizontal, 8)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .listRowBackground(
