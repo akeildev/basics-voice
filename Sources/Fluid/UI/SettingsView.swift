@@ -1037,8 +1037,25 @@ struct SettingsView: View {
                 }
 
                 PrefRow(
+                    title: "Tasks in the notch",
+                    helper: "Off by default so the notch stays free for whatever else you keep there. Your tasks are always on the Tasks page.",
+                    verticalPadding: 13
+                ) {
+                    PrefSwitch(
+                        isOn: Binding(
+                            get: { SettingsStore.shared.showTasksInNotch },
+                            set: {
+                                SettingsStore.shared.showTasksInNotch = $0
+                                AppServices.shared.refreshNotchHUDMounting()
+                            }
+                        ),
+                        label: "Show the task HUD in the notch"
+                    )
+                }
+
+                PrefRow(
                     title: "Preview length",
-                    helper: "How many recent characters the notch or pill shows while you speak.",
+                    helper: "How many recent characters the notch or tab shows while you speak.",
                     verticalPadding: 13
                 ) {
                     PrefStepper(

@@ -132,9 +132,22 @@ final class AppServices: ObservableObject {
         // Access the properties to trigger lazy initialization
         _ = self.audioObserver
         _ = self.asr
-        self.notchHUD.start()
+        self.refreshNotchHUDMounting()
 
         DebugLogger.shared.info("✅ All services initialized", source: "AppServices")
+    }
+
+    /// Mount or tear down the persistent notch task HUD to match the setting.
+    /// Off by default: the notch belongs to whatever the user already keeps
+    /// there, and this app's tasks live on the Tasks page instead. Safe to call
+    /// repeatedly — `start()` and `stop()` are both idempotent.
+    func refreshNotchHUDMounting() {
+        guard SettingsStore.shared.showTasksInNotch else {
+            self._notchHUD?.stop()
+            self._notchHUD = nil
+            return
+        }
+        self.notchHUD.start()
     }
 
     func shutdownForTermination() async {

@@ -693,7 +693,8 @@ struct ContentView: View {
 
             // Mount the persistent notch task HUD now that the UI-ready gate has
             // passed (never earlier — see AppServices' defensive-startup notes).
-            self.appServices.notchHUD.start()
+            // No-op unless the user has asked for tasks in the notch.
+            self.appServices.refreshNotchHUDMounting()
 
             DebugLogger.shared.info("🔊 Starting delayed audio initialization...", source: "ContentView")
             self.audioObserver.startObserving()

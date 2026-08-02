@@ -1943,6 +1943,20 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Whether the persistent task HUD occupies the notch. Off by default —
+    /// the notch belongs to whatever the user already keeps there, and the
+    /// same tasks are on the Tasks page.
+    var showTasksInNotch: Bool {
+        get {
+            guard self.defaults.object(forKey: Keys.showTasksInNotch) != nil else { return false }
+            return self.defaults.bool(forKey: Keys.showTasksInNotch)
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.showTasksInNotch)
+        }
+    }
+
     /// Internal-only top notch presentation mode. No public settings UI yet.
     var notchPresentationMode: NotchPresentationMode {
         get {
@@ -5114,6 +5128,7 @@ private extension SettingsStore {
         static let overlayBottomOffset = "OverlayBottomOffset"
         static let overlayBottomOffsetMigratedTo50 = "OverlayBottomOffsetMigratedTo50"
         static let overlayTabMigrated = "OverlayMigratedToBottomTab"
+        static let showTasksInNotch = "ShowTasksInNotch"
         static let overlaySize = "OverlaySize"
         static let transcriptionPreviewCharLimit = "TranscriptionPreviewCharLimit"
 
