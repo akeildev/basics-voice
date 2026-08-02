@@ -29,7 +29,7 @@ enum MenuBarIconGenerator {
     /// Menu-bar glyphs get an 18pt square; the tile sits well inside it. Small
     /// and constant is the whole point — the mark is an identity, not a status
     /// light, and the bar has enough moving parts already.
-    private static let tileSide: CGFloat = 13
+    private static let tileSide: CGFloat = 15
 
     /// The logo is authored on a 972-unit square.
     private static let logoUnits: CGFloat = 972
