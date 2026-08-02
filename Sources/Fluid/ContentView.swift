@@ -348,6 +348,20 @@ struct ContentView: View {
                     .navigationSplitViewStyle(.balanced)
                 }
             }
+            // The strip above the sidebar was the window ground showing
+            // through: NavigationSplitView lays out below the titlebar on
+            // macOS 26 and renders the sidebar as an inset panel, so whatever
+            // is behind it shows in that gap. Painting it on the NSWindow
+            // worked only when the AppKit chrome happened to apply — SwiftUI
+            // recreates and re-titles its window, and then the band came back
+            // white. Painting it HERE is unconditional: this ground covers the
+            // whole window, and the detail pane's own background (which also
+            // ignores the safe area) covers the right-hand side with page
+            // white. Left continuous with the sidebar, right with the page.
+            .background(
+                BasicsTokens.Surface.sidebar
+                    .ignoresSafeArea()
+            )
         )
 
         let tracked = layout.withMouseTracking(self.mouseTracker)

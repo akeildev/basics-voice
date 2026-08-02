@@ -1004,18 +1004,18 @@ struct SettingsView: View {
 
                     PrefRow(
                         title: "Bottom offset",
-                        helper: "Distance from the bottom of the screen, 20–500 px. Only applies at the bottom position.",
+                        helper: "Distance from the bottom of the screen, 8–500 px. Only applies at the bottom position.",
                         verticalPadding: 13
                     ) {
                         PrefStepper(
                             readout: "\(Int(self.settings.overlayBottomOffset)) px",
-                            canDecrease: self.settings.overlayBottomOffset > 20,
+                            canDecrease: self.settings.overlayBottomOffset > 8,
                             canIncrease: self.settings.overlayBottomOffset < 500,
                             onDecrease: {
-                                self.settings.overlayBottomOffset = max(20, self.settings.overlayBottomOffset - 10)
+                                self.settings.overlayBottomOffset = max(8, self.settings.overlayBottomOffset - 4)
                             },
                             onIncrease: {
-                                self.settings.overlayBottomOffset = min(500, self.settings.overlayBottomOffset + 10)
+                                self.settings.overlayBottomOffset = min(500, self.settings.overlayBottomOffset + 4)
                             }
                         )
                     }

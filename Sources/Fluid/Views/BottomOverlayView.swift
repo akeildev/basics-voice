@@ -581,13 +581,18 @@ final class BottomOverlayWindowController {
         // Vertical positioning with safety clamping
         let offset = SettingsStore.shared.overlayBottomOffset
 
+        // The tab reserves a transparent shadow ring inside its window, so the
+        // window's bottom edge sits that much below the visible surface. Take
+        // it back off here, otherwise the offset setting silently lies by ~16px.
+        let shadowPad = SettingsStore.shared.overlaySize == .pill ? PillShadowMetrics.shadowPad : 0
+
         // Calculate raw position
-        var y = visibleFrame.minY + CGFloat(offset)
+        var y = visibleFrame.minY + CGFloat(offset) - shadowPad
 
         // Safety Clamping:
-        // 1. Min: Ensure it's at least visibleFrame.minY (not below the dock/visible area)
+        // 1. Min: Ensure the visible surface stays clear of the dock/visible area
         // 2. Max: Ensure it doesn't cross the top of the visible frame minus its own height
-        let minY = visibleFrame.minY + 10 // Small buffer from absolute bottom
+        let minY = visibleFrame.minY + 4 - shadowPad // Small buffer from absolute bottom
         let maxY = visibleFrame.maxY - windowSize.height - 40 // Buffer from top
 
         y = max(min(y, maxY), minY)
@@ -1966,9 +1971,13 @@ private enum PillShadowMetrics {
     // Keep in sync with the pill shadow in BottomOverlayView.body.
     static let radius: CGFloat = 10
     static let yOffset: CGFloat = 4
-    /// Hit-test inset must cover the visible shadow extent (radius + |offset|)
-    /// plus a small margin so the shadow region doesn't intercept clicks.
-    static let hitTestInset: CGFloat = radius + abs(yOffset) + 12
+    /// Transparent ring reserved around the tab so the (content-sized) window
+    /// doesn't clip its drop shadow. Subtracted again when positioning, so the
+    /// bottom-offset setting means the gap you can actually see.
+    static let shadowPad: CGFloat = radius + abs(yOffset) + 2
+    /// Hit-test inset must cover the visible shadow extent so the shadow
+    /// region doesn't intercept clicks.
+    static let hitTestInset: CGFloat = shadowPad
 }
 
 private final class BottomOverlayHostingView: NSHostingView<BottomOverlayView> {
@@ -2045,33 +2054,40 @@ struct BottomOverlayView: View {
         let showsTopControls: Bool
         let showsPreview: Bool
         let showsModeLabel: Bool
+        /// The app icon / mode dot to the left of the waveform. The tab drops
+        /// it so the waveform is the only thing on the surface.
+        var showsLeadingGlyph: Bool = true
 
         static func get(for size: SettingsStore.OverlaySize) -> LayoutConstants {
             switch size {
             case .pill:
+                // The tab: a 92x26 sliver that floats just clear of the bottom
+                // edge. Waveform only — no app icon, no mode dot, no label, so
+                // it never competes with whatever else lives at the notch.
                 return LayoutConstants(
-                    hPadding: 12,
-                    vPadding: 8,
-                    waveformWidth: 46,
-                    waveformHeight: 30,
-                    iconSize: 18,
+                    hPadding: 20,
+                    vPadding: 5,
+                    waveformWidth: 52,
+                    waveformHeight: 16,
+                    iconSize: 0,
                     transFontSize: 10,
                     modeFontSize: 9,
-                    cornerRadius: 23,
+                    cornerRadius: 13,
                     barCount: 8,
                     barWidth: 3.0,
-                    barSpacing: 2.5,
+                    barSpacing: 4.0,
                     minBarHeight: 4,
-                    maxBarHeight: 28,
-                    containerWidth: 100,
-                    overlayWidth: 100,
-                    overlayHeight: 46,
+                    maxBarHeight: 16,
+                    containerWidth: 92,
+                    overlayWidth: 92,
+                    overlayHeight: 26,
                     previewBoxHeight: 0,
                     contentGap: 0,
                     usesFixedCanvas: false,
                     showsTopControls: false,
                     showsPreview: false,
-                    showsModeLabel: false
+                    showsModeLabel: false,
+                    showsLeadingGlyph: false
                 )
             case .small:
                 return LayoutConstants(
@@ -2919,29 +2935,31 @@ struct BottomOverlayView: View {
             (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
         let showModelLoading = self.layout.showsModeLabel && isWarmingUp
 
-        return HStack(spacing: max(self.layout.hPadding / 1.5, 10)) {
-            VStack(spacing: 2) {
-                if showModelLoading {
-                    ProgressView()
-                        .controlSize(.mini)
+        return HStack(spacing: self.layout.showsLeadingGlyph ? max(self.layout.hPadding / 1.5, 10) : 0) {
+            if self.layout.showsLeadingGlyph {
+                VStack(spacing: 2) {
+                    if showModelLoading {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+                    if let appIcon = appIcon {
+                        Image(nsImage: appIcon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: self.layout.iconSize, height: self.layout.iconSize)
+                            .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4, style: .continuous))
+                    } else if !self.layout.showsModeLabel {
+                        Circle()
+                            .fill(self.modeColor)
+                            .frame(
+                                width: max(self.layout.iconSize * 0.45, 7),
+                                height: max(self.layout.iconSize * 0.45, 7)
+                            )
+                    }
                 }
-                if let appIcon = appIcon {
-                    Image(nsImage: appIcon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: self.layout.iconSize, height: self.layout.iconSize)
-                        .clipShape(RoundedRectangle(cornerRadius: self.layout.iconSize / 4, style: .continuous))
-                } else if !self.layout.showsModeLabel {
-                    Circle()
-                        .fill(self.modeColor)
-                        .frame(
-                            width: max(self.layout.iconSize * 0.45, 7),
-                            height: max(self.layout.iconSize * 0.45, 7)
-                        )
-                }
+                .frame(width: self.layout.iconSize, height: self.layout.iconSize)
+                .opacity((appIcon != nil || showModelLoading || !self.layout.showsModeLabel) ? 1 : 0)
             }
-            .frame(width: self.layout.iconSize, height: self.layout.iconSize)
-            .opacity((appIcon != nil || showModelLoading || !self.layout.showsModeLabel) ? 1 : 0)
 
             if self.layout.showsModeLabel {
                 Spacer(minLength: 8)
@@ -3127,8 +3145,8 @@ struct BottomOverlayView: View {
             height: self.overlayFrameHeight,
             alignment: .top
         )
-        // Reserve space around the pill so its drop shadow isn't clipped by the (content-sized) window.
-        .padding(self.isPillSize ? 26 : 0)
+        // Reserve space around the tab so its drop shadow isn't clipped by the (content-sized) window.
+        .padding(self.isPillSize ? PillShadowMetrics.shadowPad : 0)
         .frame(maxHeight: .infinity, alignment: .top)
         .scaleEffect(self.overlayAnimatedScale, anchor: .center)
         .offset(y: self.overlayAnimatedOffsetY)
@@ -3303,9 +3321,10 @@ struct BottomWaveformView: View {
         if self.isProcessingVisualActive {
             return BasicsTokens.Dark.barProcessing
         }
-        // The pill has no mode label, so its bars stay neutral; every other size
-        // carries the mode colour (g400 while dictating).
-        return self.isPillStyle ? BasicsTokens.Dark.barPill : self.color
+        // The tab dropped its icon and label, so the bars are the only thing
+        // left that can say which mode is running — they carry the mode colour
+        // at every size now.
+        return self.color
     }
 
     private var isReleaseAnimationActive: Bool {

@@ -43,6 +43,7 @@ final class SettingsStore: ObservableObject {
         self.purgeRetiredAppleIntelligenceState()
         self.repairForcedOnboardingResetIfNeeded()
         self.migrateOverlayBottomOffsetTo50IfNeeded()
+        self.migrateToBottomTabIfNeeded()
         self.migratePrivateAIContextDefaultTo4KIfNeeded()
         self.refreshLaunchAtStartupStatus(clearError: true, logMismatch: false)
     }
@@ -1887,7 +1888,8 @@ final class SettingsStore: ObservableObject {
 
         var displayName: String {
             switch self {
-            case .pill: return "Pill"
+            // Raw value stays "pill" so stored preferences keep resolving.
+            case .pill: return "Tab"
             case .small: return "Small"
             case .medium: return "Medium"
             case .large: return "Large"
@@ -1961,13 +1963,13 @@ final class SettingsStore: ObservableObject {
     var overlayBottomOffset: Double {
         get {
             let value = self.defaults.double(forKey: Keys.overlayBottomOffset)
-            return value == 0.0 ? 50.0 : value // Default to 50.0
+            return value == 0.0 ? 16.0 : value // Default to 16.0 — the tab rides close to the edge
         }
         set {
             objectWillChange.send()
-            // Clamp between a safe range (20px to 1000px)
-            // Even though slider is 20-500, we clamp for safety
-            let clamped = max(min(newValue, 1000.0), 10.0)
+            // Clamp between a safe range (8px to 1000px)
+            // Even though the stepper is 8-500, we clamp for safety
+            let clamped = max(min(newValue, 1000.0), 8.0)
             self.defaults.set(clamped, forKey: Keys.overlayBottomOffset)
 
             // Post notification for live update if overlay is visible
@@ -1981,7 +1983,7 @@ final class SettingsStore: ObservableObject {
             guard let raw = self.defaults.string(forKey: Keys.overlaySize),
                   let size = OverlaySize(rawValue: raw)
             else {
-                return .medium // Default to medium
+                return .pill // Default to the tab
             }
             return size
         }
@@ -3592,6 +3594,25 @@ final class SettingsStore: ObservableObject {
         NotificationCenter.default.post(name: NSNotification.Name("OverlayOffsetChanged"), object: nil)
     }
 
+    /// Move existing installs onto the bottom tab. The recording HUD used to
+    /// present at the top of the screen, where it collided with whatever else
+    /// the user keeps in the notch. One-time — after this, the three overlay
+    /// preferences are theirs to change again.
+    private func migrateToBottomTabIfNeeded() {
+        if self.defaults.bool(forKey: Keys.overlayTabMigrated) {
+            return
+        }
+
+        self.defaults.set(OverlayPosition.bottom.rawValue, forKey: Keys.overlayPosition)
+        self.defaults.set(OverlaySize.pill.rawValue, forKey: Keys.overlaySize)
+        self.defaults.set(16.0, forKey: Keys.overlayBottomOffset)
+        self.defaults.set(true, forKey: Keys.overlayTabMigrated)
+
+        NotificationCenter.default.post(name: NSNotification.Name("OverlayPositionChanged"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("OverlaySizeChanged"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("OverlayOffsetChanged"), object: nil)
+    }
+
     private func scrubSavedProviderAPIKeys() {
         guard let data = defaults.data(forKey: Keys.savedProviders),
               var decoded = try? JSONDecoder().decode([SavedProvider].self, from: data) else { return }
@@ -5092,6 +5113,7 @@ private extension SettingsStore {
         static let notchPresentationMode = "NotchPresentationMode"
         static let overlayBottomOffset = "OverlayBottomOffset"
         static let overlayBottomOffsetMigratedTo50 = "OverlayBottomOffsetMigratedTo50"
+        static let overlayTabMigrated = "OverlayMigratedToBottomTab"
         static let overlaySize = "OverlaySize"
         static let transcriptionPreviewCharLimit = "TranscriptionPreviewCharLimit"
 
