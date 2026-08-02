@@ -28,6 +28,12 @@ struct FluidApp: App {
                     .environmentObject(self.menuBarManager)
                     .environmentObject(self.appServices)
             }
+            // Drops the hairline the toolbar otherwise rules under itself. This
+            // is the SwiftUI knob for it — not to be confused with the
+            // `.toolbarBackground(Surface.bg, …)` that used to be here, which
+            // PAINTED that band white and was one of the four surfaces fighting
+            // over the top strip.
+            .toolbarBackground(.hidden, for: .windowToolbar)
         }
         // 720, not 680: onboarding's own minimum is 700, so the smaller default
         // made the window jump on first launch.

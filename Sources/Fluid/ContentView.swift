@@ -1259,17 +1259,18 @@ struct ContentView: View {
     /// dictation, then the modes that change what dictation does, then the
     /// things it produced, then the app itself.
     private var sidebarView: some View {
-        // A real selection binding, so AppKit draws the sidebar the way every
-        // other Mac app draws it: its own pill, its own hover, keyboard arrow
-        // navigation, a focus ring, and the VoiceOver "selected" trait.
+        // No selection binding, deliberately. With one, AppKit draws its own
+        // emphasized pill in the SYSTEM accent — teal on this Mac — and
+        // `.tint()` does not override it, because that pill is an NSTableView
+        // highlight rather than anything SwiftUI colours. The selection has to
+        // be the Basics green, so the rows below draw it themselves and AppKit
+        // is given no selection to draw.
         //
-        // This used to have no binding, and each row hand-drew a green pill in
-        // a `.listRowBackground` — to keep the selection in the Basics green
-        // rather than the user's system accent. The cost was two highlights per
-        // row, from two different layers, appearing a frame apart: that
-        // double-draw is what read as flicker on hover. The system pill follows
-        // the user's accent colour and that is correct behaviour, not a bug.
-        List(selection: self.$selectedSidebarItem) {
+        // This is the same shape the app had before, and it is NOT what caused
+        // the hover flicker: that was `MousePositionTracker`, a dead observer
+        // that republished the mouse position 15x a second and invalidated the
+        // whole view tree. It is gone.
+        List {
             Section {
                 self.sidebarNavigationLink(.welcome, title: "Home", systemImage: "house")
                 self.sidebarNavigationLink(.voiceEngine, title: "Voice engine", systemImage: "waveform")
@@ -1305,6 +1306,7 @@ struct ContentView: View {
             }
         }
         .listStyle(.sidebar)
+        .tint(BasicsTokens.Semantic.brand)
         .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
     }
 
@@ -1320,14 +1322,27 @@ struct ContentView: View {
             .padding(.bottom, self.theme.metrics.spacing.xs)
     }
 
-    /// A row is a `Label` with a tag and nothing else. Everything that used to
-    /// be here — the button, the hand-drawn pill, the row insets — was the
-    /// app competing with the list it was inside.
+    /// The selected row is a brand pill with white ink — the Basics green, on
+    /// any Mac, whatever the user's system accent is set to.
     private func sidebarNavigationLink(_ item: SidebarItem, title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(self.theme.typography.sidebarItem)
-            .frame(height: 24)
-            .tag(item)
+        let isSelected = self.selectedSidebarItem == item
+        return Button {
+            self.selectedSidebarItem = item
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(self.theme.typography.sidebarItem)
+                .foregroundStyle(isSelected ? Color.white : self.theme.palette.primaryText)
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                .padding(.vertical, 3)
+                .padding(.horizontal, 8)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? BasicsTokens.Semantic.brand : Color.clear)
+        )
+        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
     }
 
     private var themePreferenceButton: some View {
