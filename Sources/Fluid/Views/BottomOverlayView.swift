@@ -2057,37 +2057,45 @@ struct BottomOverlayView: View {
         /// The app icon / mode dot to the left of the waveform. The tab drops
         /// it so the waveform is the only thing on the surface.
         var showsLeadingGlyph: Bool = true
+        /// How much of the bar's travel the OUTERMOST bar keeps. The profile
+        /// tapers from the centre outward; on a big panel a hard taper looks
+        /// like a proper waveform, but on the tab it leaves the end bars nearly
+        /// still and the whole thing reads as dead. The tab keeps them moving.
+        var barPeakFloor: CGFloat = 0.18
 
         static func get(for size: SettingsStore.OverlaySize) -> LayoutConstants {
             switch size {
             case .pill:
-                // The tab: a 92x26 sliver that floats just clear of the bottom
+                // The tab: a 64x24 sliver that floats just clear of the bottom
                 // edge. Waveform only — no app icon, no mode dot, no label, so
                 // it never competes with whatever else lives at the notch.
+                // Six bars rather than eight: at this width eight read as a
+                // dotted line, and the whole point of the tab is the movement.
                 return LayoutConstants(
-                    hPadding: 20,
+                    hPadding: 14,
                     vPadding: 5,
-                    waveformWidth: 52,
-                    waveformHeight: 16,
+                    waveformWidth: 36,
+                    waveformHeight: 14,
                     iconSize: 0,
                     transFontSize: 10,
                     modeFontSize: 9,
-                    cornerRadius: 13,
-                    barCount: 8,
+                    cornerRadius: 12,
+                    barCount: 6,
                     barWidth: 3.0,
-                    barSpacing: 4.0,
-                    minBarHeight: 4,
-                    maxBarHeight: 16,
-                    containerWidth: 92,
-                    overlayWidth: 92,
-                    overlayHeight: 26,
+                    barSpacing: 3.5,
+                    minBarHeight: 3,
+                    maxBarHeight: 14,
+                    containerWidth: 64,
+                    overlayWidth: 64,
+                    overlayHeight: 24,
                     previewBoxHeight: 0,
                     contentGap: 0,
                     usesFixedCanvas: false,
                     showsTopControls: false,
                     showsPreview: false,
                     showsModeLabel: false,
-                    showsLeadingGlyph: false
+                    showsLeadingGlyph: false,
+                    barPeakFloor: 0.62
                 )
             case .small:
                 return LayoutConstants(
@@ -3421,7 +3429,8 @@ struct BottomWaveformView: View {
         let centerDistance = abs(CGFloat(index) - CGFloat(self.barCount - 1) / 2)
         let maxDistance = max(CGFloat(self.barCount - 1) / 2, 1)
         let normalizedDistance = min(centerDistance / maxDistance, 1)
-        let factor = max(0.18, 0.96 - normalizedDistance * 0.78)
+        let floor = self.layout.barPeakFloor
+        let factor = max(floor, 0.96 - normalizedDistance * (0.96 - floor))
         return self.minHeight + (self.maxHeight - self.minHeight) * factor
     }
 

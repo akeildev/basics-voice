@@ -52,6 +52,44 @@ final class TypingService {
 
     private static let focusSnapshotQueue = DispatchQueue(label: "TypingService.FocusSnapshot")
     private static let pasteboardSessionSemaphore = DispatchSemaphore(value: 1)
+
+    /// How many paste sessions are queued behind `pasteboardSessionSemaphore`.
+    ///
+    /// A finished paste keeps holding that semaphore while it waits to verify
+    /// the text actually landed, and only then restores the user's clipboard.
+    /// In an app whose accessibility interface never reports its text — any
+    /// terminal, Ghostty included — that verification can never succeed, so the
+    /// wait always runs to its full timeout and the NEXT dictation blocks for
+    /// seconds before it can paste. Verification is advisory, so it gives way
+    /// the moment somebody else needs the pasteboard.
+    private static let pasteWaitersLock = NSLock()
+    private static var pasteSessionWaiters = 0
+
+    private static func enterPasteQueue() {
+        self.pasteWaitersLock.lock()
+        self.pasteSessionWaiters += 1
+        self.pasteWaitersLock.unlock()
+    }
+
+    private static func leavePasteQueue() {
+        self.pasteWaitersLock.lock()
+        self.pasteSessionWaiters -= 1
+        self.pasteWaitersLock.unlock()
+    }
+
+    private static var anotherPasteIsWaiting: Bool {
+        self.pasteWaitersLock.lock()
+        defer { self.pasteWaitersLock.unlock() }
+        return self.pasteSessionWaiters > 0
+    }
+
+    /// Verification always runs at least this long before it will give way, so
+    /// the Cmd+V we just dispatched is certain to have been consumed before the
+    /// clipboard goes back to what the user had.
+    private static let pasteVerificationFloorMicros: useconds_t = 150_000
+    /// Ceiling on that wait. It was 5s, which is the entire budget an app that
+    /// can't be verified will burn on every single paste.
+    private static let pasteVerificationTimeoutMicros: useconds_t = 1_500_000
     private static let pasteboardRestoreQueue = DispatchQueue(label: "TypingService.PasteboardRestore", qos: .utility)
     private static var focusSnapshot: FocusSnapshot?
     private static let ghosttyBundleIdentifier = "com.mitchellh.ghostty"
@@ -626,7 +664,9 @@ final class TypingService {
         restoreDelayMicros: useconds_t,
         action: () -> Bool
     ) -> Bool {
+        Self.enterPasteQueue()
         Self.pasteboardSessionSemaphore.wait()
+        Self.leavePasteQueue()
         var releasesPasteboardSessionOnReturn = true
         defer {
             if releasesPasteboardSessionOnReturn {
@@ -689,7 +729,7 @@ final class TypingService {
             usleep(80_000)
         }
 
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: Self.pasteVerificationTimeoutMicros) {
             let vKey = Self.pasteVirtualKeyCode
             guard let cmdVDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
                   let cmdVUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false)
@@ -801,7 +841,7 @@ final class TypingService {
     /// More reliable but slightly slower - copies text to clipboard then pastes
     private func insertTextViaClipboard(_ text: String) -> Bool {
         self.log("[TypingService] Starting clipboard-based insertion")
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: Self.pasteVerificationTimeoutMicros) {
             let vKey = Self.pasteVirtualKeyCode
             guard let cmdVDown = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: true),
                   let cmdVUp = CGEvent(keyboardEventSource: nil, virtualKey: vKey, keyDown: false)
@@ -828,7 +868,7 @@ final class TypingService {
             return false
         }
 
-        return self.withTemporaryPasteboardString(text, restoreDelayMicros: 5_000_000) {
+        return self.withTemporaryPasteboardString(text, restoreDelayMicros: Self.pasteVerificationTimeoutMicros) {
             let escapedAppName = appName.replacingOccurrences(of: "\"", with: "\\\"")
             let script = """
             tell application "System Events"
@@ -1093,12 +1133,26 @@ final class TypingService {
         expectedText: String,
         timeoutMicros: useconds_t
     ) -> PasteVerificationResult {
+        let pollMicros: useconds_t = 50_000
+
+        /// True once we've waited long enough to be sure the paste was consumed
+        /// AND another dictation is queued for the pasteboard. Abandoning here
+        /// is strictly better than blocking it: the next session overwrites the
+        /// pasteboard anyway, so restoring now is what it wants to snapshot.
+        func shouldYieldToNextPaste(waited: useconds_t) -> Bool {
+            waited >= Self.pasteVerificationFloorMicros && Self.anotherPasteIsWaiting
+        }
+
         guard let snapshot else {
-            usleep(timeoutMicros)
+            var waited: useconds_t = 0
+            while waited < timeoutMicros {
+                usleep(pollMicros)
+                waited += pollMicros
+                if shouldYieldToNextPaste(waited: waited) { break }
+            }
             return .unavailable
         }
 
-        let pollMicros: useconds_t = 50_000
         let expectedLength = max(1, (expectedText as NSString).length)
         let tolerance = max(2, expectedLength / 5)
         var waited: useconds_t = 0
@@ -1106,6 +1160,8 @@ final class TypingService {
         while waited < timeoutMicros {
             usleep(pollMicros)
             waited += pollMicros
+
+            if shouldYieldToNextPaste(waited: waited) { break }
 
             guard let current = self.captureFocusedTextSnapshot(),
                   current.pid == snapshot.pid

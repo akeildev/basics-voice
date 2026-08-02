@@ -26,14 +26,10 @@ enum MenuBarIconGenerator {
 
     // MARK: - Metrics
 
-    /// Menu-bar glyphs live on an 18pt square; the tile fills it edge to edge.
-    private static let tileSide: CGFloat = 18
-    /// The breathing room between the tile and its trailing glyph.
-    private static let glyphGap: CGFloat = 5
-    /// The level meter's own box, centred vertically on the tile.
-    private static let meterSize = NSSize(width: 14, height: 14)
-    /// The refining trail's box, centred the same way.
-    private static let dotsSize = NSSize(width: 11, height: 14)
+    /// Menu-bar glyphs get an 18pt square; the tile sits well inside it. Small
+    /// and constant is the whole point — the mark is an identity, not a status
+    /// light, and the bar has enough moving parts already.
+    private static let tileSide: CGFloat = 13
 
     /// The logo is authored on a 972-unit square.
     private static let logoUnits: CGFloat = 972
@@ -55,36 +51,17 @@ enum MenuBarIconGenerator {
     // MARK: - Rendering
 
     private static func render(_ state: State) -> NSImage {
-        let size: NSSize
-        switch state {
-        case .idle:
-            size = NSSize(width: self.tileSide, height: self.tileSide)
-        case .recording:
-            size = NSSize(
-                width: self.tileSide + self.glyphGap + self.meterSize.width,
-                height: self.tileSide
-            )
-        case .refining:
-            size = NSSize(
-                width: self.tileSide + self.glyphGap + self.dotsSize.width,
-                height: self.tileSide
-            )
-        }
+        // Every state draws the same mark. It used to grow a level meter while
+        // recording and a trail while refining, which made the status item
+        // resize and shove the rest of the menu bar sideways on every dictation.
+        // The recording tab already shows the level, live.
+        let size = NSSize(width: self.tileSide, height: self.tileSide)
 
         // `flipped: true` puts the origin top-left with y growing downward, which
         // is the space the logo path and the board's SVG are both authored in.
         let image = NSImage(size: size, flipped: true) { _ in
             NSColor.black.setFill()
             self.tilePath().fill()
-
-            switch state {
-            case .idle:
-                break
-            case .recording:
-                self.drawLevelMeter(originX: self.tileSide + self.glyphGap)
-            case .refining:
-                self.drawRefiningTrail(originX: self.tileSide + self.glyphGap)
-            }
             return true
         }
 
@@ -144,32 +121,4 @@ enum MenuBarIconGenerator {
         return path
     }
 
-    /// Four bars, same silhouette as the notch waveform. Static: a menu-bar
-    /// template image cannot animate, so the shape has to read at a glance.
-    private static func drawLevelMeter(originX: CGFloat) {
-        let top = (self.tileSide - self.meterSize.height) / 2
-        // x, y, height — width is 2 and the ends are fully rounded.
-        let bars: [(CGFloat, CGFloat, CGFloat)] = [
-            (0, 4, 6),
-            (4, 1, 12),
-            (8, 3, 8),
-            (12, 5.5, 3),
-        ]
-        for (x, y, height) in bars {
-            let rect = NSRect(x: originX + x, y: top + y, width: 2, height: height)
-            NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
-        }
-    }
-
-    /// Three dots fading out to the right — the refining pass, not a recording.
-    private static func drawRefiningTrail(originX: CGFloat) {
-        let centerY = (self.tileSide - self.dotsSize.height) / 2 + 7
-        let dots: [(CGFloat, CGFloat)] = [(1, 1.0), (5, 0.55), (9, 0.3)]
-        for (x, alpha) in dots {
-            NSColor.black.withAlphaComponent(alpha).setFill()
-            let rect = NSRect(x: originX + x - 1, y: centerY - 1, width: 2, height: 2)
-            NSBezierPath(ovalIn: rect).fill()
-        }
-        NSColor.black.setFill()
-    }
 }

@@ -1868,7 +1868,14 @@ final class SettingsStore: ObservableObject {
     var visualizerNoiseThreshold: Double {
         get {
             let value = self.defaults.double(forKey: Keys.visualizerNoiseThreshold)
-            return value == 0.0 ? 0.4 : value // Default to 0.4 if not set
+            // 0.05, matching the compact notch waveforms, which hardcode it.
+            //
+            // The old 0.4 default was eight times higher than that, on a scale
+            // where -55 dB is 0 and 0 dB is 1 — so ordinary speech (around 0.3)
+            // never cleared the gate and the bars sat dead flat. It went
+            // unnoticed while the compact notch waveform, which ignores this
+            // setting, was the one on screen.
+            return value == 0.0 ? 0.05 : value
         }
         set {
             // Clamp between 0.0 and 0.95 to avoid division by zero issues in visualizers
