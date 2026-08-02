@@ -203,7 +203,6 @@ struct ContentView: View {
     }
 
     @EnvironmentObject private var appServices: AppServices
-    @StateObject private var mouseTracker = MousePositionTracker()
     @StateObject private var commandModeService = CommandModeService()
     @StateObject private var rewriteModeService = RewriteModeService()
     @EnvironmentObject private var menuBarManager: MenuBarManager
@@ -325,7 +324,6 @@ struct ContentView: View {
 
     @State private var savedProviders: [SettingsStore.SavedProvider] = []
     @State private var selectedProviderID: String = SettingsStore.shared.selectedProviderID
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         let layout = AnyView(
@@ -333,40 +331,16 @@ struct ContentView: View {
                 if self.settings.shouldShowOnboarding {
                     self.onboardingOnlyView
                 } else {
-                    NavigationSplitView(columnVisibility: self.$columnVisibility) {
-                        // No safe-area overrides here. The titlebar owns a fixed
-                        // band at the top of the window and the split view
-                        // begins below it — pushing the column up behind the
-                        // titlebar clipped the first nav row and needed
-                        // per-item padding to paper over, which is the wrong
-                        // layer to fix it at.
+                    NavigationSplitView {
                         self.sidebarView
-                            .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
                     } detail: {
                         self.detailView
                     }
-                    .navigationSplitViewStyle(.balanced)
                 }
             }
-            // The strip above the sidebar was the window ground showing
-            // through: NavigationSplitView lays out below the titlebar on
-            // macOS 26 and renders the sidebar as an inset panel, so whatever
-            // is behind it shows in that gap. Painting it on the NSWindow
-            // worked only when the AppKit chrome happened to apply — SwiftUI
-            // recreates and re-titles its window, and then the band came back
-            // white. Painting it HERE is unconditional: this ground covers the
-            // whole window, and the detail pane's own background (which also
-            // ignores the safe area) covers the right-hand side with page
-            // white. Left continuous with the sidebar, right with the page.
-            .background(
-                BasicsTokens.Surface.sidebar
-                    .ignoresSafeArea()
-            )
         )
 
-        let tracked = layout.withMouseTracking(self.mouseTracker)
-        let env = tracked.environmentObject(self.mouseTracker)
-        let nav = env.onChange(of: self.menuBarManager.requestedNavigationDestination) { _, destination in
+        let nav = layout.onChange(of: self.menuBarManager.requestedNavigationDestination) { _, destination in
             self.handleMenuBarNavigation(destination)
         }
         let sized = nav.fluidWindowSizing(self.windowSizing)
@@ -1285,12 +1259,17 @@ struct ContentView: View {
     /// dictation, then the modes that change what dictation does, then the
     /// things it produced, then the app itself.
     private var sidebarView: some View {
-        // No selection binding: with one, AppKit draws its own emphasized
-        // selection pill in the SYSTEM accent colour, on top of any
-        // listRowBackground — on a teal-accented Mac the row went teal. The
-        // rows below are plain buttons that set `selectedSidebarItem`
-        // themselves, so the only selection pill is the Basics one.
-        List {
+        // A real selection binding, so AppKit draws the sidebar the way every
+        // other Mac app draws it: its own pill, its own hover, keyboard arrow
+        // navigation, a focus ring, and the VoiceOver "selected" trait.
+        //
+        // This used to have no binding, and each row hand-drew a green pill in
+        // a `.listRowBackground` — to keep the selection in the Basics green
+        // rather than the user's system accent. The cost was two highlights per
+        // row, from two different layers, appearing a frame apart: that
+        // double-draw is what read as flicker on hover. The system pill follows
+        // the user's accent colour and that is correct behaviour, not a bug.
+        List(selection: self.$selectedSidebarItem) {
             Section {
                 self.sidebarNavigationLink(.welcome, title: "Home", systemImage: "house")
                 self.sidebarNavigationLink(.voiceEngine, title: "Voice engine", systemImage: "waveform")
@@ -1326,23 +1305,7 @@ struct ContentView: View {
             }
         }
         .listStyle(.sidebar)
-        .animation(nil, value: self.selectedSidebarItem)
-        // macOS 26 renders a split-view sidebar as an INSET rounded panel, so
-        // the window ground shows above and around it — that was the white
-        // strip across the top. Drop the List's own backing and paint the
-        // column's ground ourselves, edge to edge and up under the titlebar.
-        // The `.ignoresSafeArea` is on the BACKGROUND only; the rows still
-        // respect the safe area, so nothing is clipped behind the traffic
-        // lights.
-        .scrollContentBackground(.hidden)
-        .background(
-            BasicsTokens.Surface.sidebar
-                .ignoresSafeArea()
-        )
-        // No navigationTitle: it printed the app name across the top of the
-        // window. The window title is set on the NSWindow itself (for the Dock
-        // and Window menu) and the titlebar renders it hidden.
-        .tint(self.theme.palette.accent)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
     }
 
     /// Board § sidebar group label: uppercase micro-label, +8% tracking.
@@ -1357,30 +1320,14 @@ struct ContentView: View {
             .padding(.bottom, self.theme.metrics.spacing.xs)
     }
 
+    /// A row is a `Label` with a tag and nothing else. Everything that used to
+    /// be here — the button, the hand-drawn pill, the row insets — was the
+    /// app competing with the list it was inside.
     private func sidebarNavigationLink(_ item: SidebarItem, title: String, systemImage: String) -> some View {
-        // Board § sidebar: the selected row is a brand-soft pill with brand ink.
-        // AppKit's own selection highlight follows the SYSTEM accent colour, not
-        // the app tint, so the selection is drawn here instead — the row
-        // background replaces the system pill and stays Basics green on any Mac.
-        let isSelected = self.selectedSidebarItem == item
-        return Button {
-            self.selectedSidebarItem = item
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(self.theme.typography.sidebarItem)
-                .foregroundStyle(isSelected ? self.theme.palette.accent : self.theme.palette.primaryText)
-                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
-                .padding(.vertical, self.theme.metrics.spacing.xs / 2)
-                .padding(.horizontal, self.theme.metrics.spacing.sm)
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .listRowBackground(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(isSelected ? BasicsTokens.Semantic.brandSoft : Color.clear)
-                .padding(.horizontal, 2)
-        )
-        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
+        Label(title, systemImage: systemImage)
+            .font(self.theme.typography.sidebarItem)
+            .frame(height: 24)
+            .tag(item)
     }
 
     private var themePreferenceButton: some View {
@@ -1408,18 +1355,9 @@ struct ContentView: View {
     }
 
     private var detailView: some View {
-        ZStack {
-            // The Basics page ground, not the system window colour — this is a
-            // background FILL only; `detailContent` is a sibling and still
-            // respects the titlebar's safe area.
-            self.theme.palette.contentBackground
-                .ignoresSafeArea()
-
-            self.detailContent
-                .transaction { transaction in
-                    transaction.animation = nil
-                }
-        }
+        self.detailContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(self.theme.palette.contentBackground)
     }
 
     private var detailContent: AnyView {
